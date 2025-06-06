@@ -11,6 +11,7 @@ using UnityEngine;
 using RoR2.CameraModes;
 using RoR2.UI;
 using RoR2.ConVar;
+using R2API.Utils;
 
 [assembly: SecurityPermission(SecurityAction.RequestMinimum, SkipVerification = true)]
 [assembly: HG.Reflection.SearchableAttribute.OptIn]
@@ -23,6 +24,7 @@ namespace BrynzaAPI
     [BepInPlugin(ModGuid, ModName, ModVer)]
     [BepInDependency(R2API.R2API.PluginGUID, R2API.R2API.PluginVersion)]
     [BepInDependency(R2API.CharacterBodyAPI.PluginGUID)]
+    [NetworkCompatibility(CompatibilityLevel.EveryoneMustHaveMod, VersionStrictness.EveryoneNeedSameModVersion)]
     [System.Serializable]
     public class BrynzaAPI : BaseUnityPlugin
     {
@@ -36,6 +38,14 @@ namespace BrynzaAPI
             IL.RoR2.UI.CrosshairManager.UpdateCrosshair += CrosshairManager_UpdateCrosshair1;
             IL.RoR2.CameraModes.CameraModePlayerBasic.UpdateInternal += CameraModePlayerBasic_UpdateInternal;
             IL.RoR2.CameraModes.CameraModePlayerBasic.CollectLookInputInternal += CameraModePlayerBasic_CollectLookInputInternal;
+            On.EntityStates.GenericCharacterMain.HandleMovements += GenericCharacterMain_HandleMovements;
+        }
+
+        private void GenericCharacterMain_HandleMovements(On.EntityStates.GenericCharacterMain.orig_HandleMovements orig, EntityStates.GenericCharacterMain self)
+        {
+            if(self.characterBody && self.characterBody.HasModdedBodyFlag(Assets.SprintAllTime))
+            self.sprintInputReceived = true;
+            orig(self);
         }
 
         private void CameraModePlayerBasic_CollectLookInputInternal(ILContext il)
