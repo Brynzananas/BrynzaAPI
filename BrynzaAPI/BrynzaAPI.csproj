@@ -17,6 +17,8 @@
 		<Reference Include="R2API-CharacterBody">
 			<HintPath>D:\r2modman\RiskOfRain2\profiles\my_mod\BepInEx\plugins\R2API.CharacterBody.dll</HintPath>
 		</Reference>
+		<ProjectReference Include="D:\Ror2Mods\BrynzaAPI\BrynzaAPI\BrynzaInterop\BrynzaInterop.csproj" Private="false" />
+		<ProjectReference Include="D:\Ror2Mods\BrynzaAPI\BrynzaAPI\BrynzaPatcher\BrynzaPatcher.csproj" Private="false" PrivateAssets="all" ReferenceOutputAssembly="false" />
 	</ItemGroup>
 
 </Project>

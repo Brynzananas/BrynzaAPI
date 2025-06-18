@@ -3,7 +3,13 @@ Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 17
 VisualStudioVersion = 17.11.35222.181
 MinimumVisualStudioVersion = 10.0.40219.1
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BrynzaAPI", "BrynzaAPI\BrynzaAPI.csproj", "{1A15DED6-A8D0-4132-9F37-123962985B7C}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "BrynzaAPI", "BrynzaAPI\BrynzaAPI.csproj", "{1A15DED6-A8D0-4132-9F37-123962985B7C}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BrynzaPatcher", "BrynzaPatcher\BrynzaPatcher.csproj", "{5B6BF281-C7E9-41DD-B9C1-F5E16C739B5B}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "RoR2", "RoR2\RoR2.csproj", "{5D28C263-14DC-4FFF-8FFE-49A8C9F827D3}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BrynzaInterop", "BrynzaInterop\BrynzaInterop.csproj", "{5C48AD05-6481-43AD-A359-C11E69AB6D16}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -15,6 +21,18 @@ Global
 		{1A15DED6-A8D0-4132-9F37-123962985B7C}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{1A15DED6-A8D0-4132-9F37-123962985B7C}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{1A15DED6-A8D0-4132-9F37-123962985B7C}.Release|Any CPU.Build.0 = Release|Any CPU
+		{5B6BF281-C7E9-41DD-B9C1-F5E16C739B5B}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{5B6BF281-C7E9-41DD-B9C1-F5E16C739B5B}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{5B6BF281-C7E9-41DD-B9C1-F5E16C739B5B}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{5B6BF281-C7E9-41DD-B9C1-F5E16C739B5B}.Release|Any CPU.Build.0 = Release|Any CPU
+		{5D28C263-14DC-4FFF-8FFE-49A8C9F827D3}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{5D28C263-14DC-4FFF-8FFE-49A8C9F827D3}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{5D28C263-14DC-4FFF-8FFE-49A8C9F827D3}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{5D28C263-14DC-4FFF-8FFE-49A8C9F827D3}.Release|Any CPU.Build.0 = Release|Any CPU
+		{5C48AD05-6481-43AD-A359-C11E69AB6D16}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{5C48AD05-6481-43AD-A359-C11E69AB6D16}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{5C48AD05-6481-43AD-A359-C11E69AB6D16}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{5C48AD05-6481-43AD-A359-C11E69AB6D16}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
