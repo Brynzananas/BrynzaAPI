@@ -29,6 +29,11 @@ using static BrynzaAPI.ContentPacks;
 using R2API.Networking.Interfaces;
 using UnityEngine.Networking;
 using static BrynzaAPI.BrynzaAPI;
+using System.Reflection;
+using BepInEx.Configuration;
+using R2API.Networking;
+using RiskOfOptions.Options;
+using RiskOfOptions;
 
 [assembly: SecurityPermission(SecurityAction.RequestMinimum, SkipVerification = true)]
 [assembly: HG.Reflection.SearchableAttribute.OptIn]
@@ -41,17 +46,25 @@ namespace BrynzaAPI
     [BepInPlugin(ModGuid, ModName, ModVer)]
     [BepInDependency(R2API.R2API.PluginGUID, R2API.R2API.PluginVersion)]
     [BepInDependency(R2API.CharacterBodyAPI.PluginGUID)]
+    [BepInDependency(NetworkingAPI.PluginGUID)]
     [NetworkCompatibility(CompatibilityLevel.EveryoneMustHaveMod, VersionStrictness.EveryoneNeedSameModVersion)]
     [System.Serializable]
     public class BrynzaAPI : BaseUnityPlugin
     {
         public const string ModGuid = "com.brynzananas.brynzaapi";
         public const string ModName = "Brynza API";
-        public const string ModVer = "1.1.0";
-        public static Dictionary<CharacterMotor, List<OnHitGroundDelegate>> onHitGroundServerDictionary = new Dictionary<CharacterMotor, List<OnHitGroundDelegate>>();
-        public delegate void OnHitGroundDelegate(CharacterMotor characterMotor, ref CharacterMotor.HitGroundInfo hitGroundInfo);
+        public const string ModVer = "1.2.0";
+        public static Dictionary<CharacterMotor, List<OnHitGroundServerDelegate>> onHitGroundServerDictionary = new Dictionary<CharacterMotor, List<OnHitGroundServerDelegate>>();
+        public delegate void OnHitGroundServerDelegate(CharacterMotor characterMotor, ref CharacterMotor.HitGroundInfo hitGroundInfo);
+        public static bool riskOfOptionsLoaded = false;
+        public static BepInEx.Configuration.ConfigFile ConfigMain;
+        public static Dictionary<string, List<INetworkConfig>> modConfigs = new Dictionary<string, List<INetworkConfig>>();
         public void Awake()
         {
+            ConfigMain = Config;
+            NetworkingAPI.RegisterMessageType<SyncConfigsNetMessage>();
+            NetworkingAPI.RegisterMessageType<RequestSyncConfigsNetMessage>();
+            riskOfOptionsLoaded = BepInEx.Bootstrap.Chainloader.PluginInfos.ContainsKey(RiskOfOptions.PluginInfo.PLUGIN_GUID);
             SetHooks();
         }
         public void OnDestroy()
@@ -80,6 +93,56 @@ namespace BrynzaAPI
             //IL.RoR2.BulletAttack.Fire += BulletAttack_Fire;
             On.RoR2.GlobalEventManager.OnCharacterHitGroundServer += GlobalEventManager_OnCharacterHitGroundServer;
             ContentManager.collectContentPackProviders += ContentManager_collectContentPackProviders;
+            On.RoR2.Run.Start += Run_Start;
+            On.RoR2.RoR2Application.OnLoad += RoR2Application_OnLoad;
+            On.RoR2.UI.CharacterSelectController.OnEnable += CharacterSelectController_OnEnable;
+            On.RoR2.CharacterMotor.OnDisable += CharacterMotor_OnDisable;
+            IL.RoR2.FogDamageController.MyFixedUpdate += FogDamageController_MyFixedUpdate;
+        }
+
+        private void FogDamageController_MyFixedUpdate(ILContext il)
+        {
+            ILCursor c = new ILCursor(il);
+            Instruction instruction = null;
+            ILLabel iLLabel = null;
+            int i = 6;
+            if (c.TryGotoNext(MoveType.After,
+                    x => x.MatchCallvirt<HealthComponent>(nameof(HealthComponent.TakeDamage))
+                ))
+            {
+                instruction = c.Next;
+                //c = new ILCursor(il);
+                if (c.TryGotoPrev(
+                x => x.MatchLdloc(out i),
+                    x => x.MatchCallvirt<CharacterBody>("get_healthComponent")
+                ))
+                {
+                    c.Index++;
+                    c.Emit(OpCodes.Ldloc, i);
+                    bool CheckForBodyFlog(CharacterBody characterBody)
+                    {
+                        return characterBody.HasModdedBodyFlag(Assets.ImmuneToVoidFog);
+                    }
+                    c.Emit(OpCodes.Brtrue_S, instruction);
+                }
+                else
+                {
+                    Debug.LogError(il.Method.Name + " IL Hook 2 failed!");
+                }
+            }
+            else
+            {
+                Debug.LogError(il.Method.Name + " IL Hook 1 failed!");
+            }
+        }
+
+        private void CharacterMotor_OnDisable(On.RoR2.CharacterMotor.orig_OnDisable orig, CharacterMotor self)
+        {
+            orig(self);
+            if (NetworkServer.active)
+            {
+                if(onHitGroundServerDictionary.ContainsKey(self)) onHitGroundServerDictionary.Remove(self);
+            }
         }
 
         private void GlobalEventManager_OnCharacterHitGroundServer(On.RoR2.GlobalEventManager.orig_OnCharacterHitGroundServer orig, GlobalEventManager self, CharacterBody characterBody, CharacterMotor.HitGroundInfo hitGroundInfo)
@@ -87,10 +150,10 @@ namespace BrynzaAPI
             CharacterMotor characterMotor = characterBody.characterMotor;
             if (characterMotor != null && onHitGroundServerDictionary.ContainsKey(characterMotor))
             {
-                List<OnHitGroundDelegate> onHitGroundDelegates = onHitGroundServerDictionary[characterMotor];
+                List<OnHitGroundServerDelegate> onHitGroundDelegates = onHitGroundServerDictionary[characterMotor];
                 for (int i = 0; i < onHitGroundDelegates.Count; i++)
                 {
-                    OnHitGroundDelegate onHitGroundDelegate = onHitGroundDelegates[i];
+                    OnHitGroundServerDelegate onHitGroundDelegate = onHitGroundDelegates[i];
                     onHitGroundDelegate?.Invoke(characterMotor, ref hitGroundInfo);
                 }
             }
@@ -520,8 +583,24 @@ private void BulletAttack_Fire(ILContext il)
             IL.RoR2.UI.CrosshairManager.UpdateCrosshair -= CrosshairManager_UpdateCrosshair1;
             IL.RoR2.CameraModes.CameraModePlayerBasic.UpdateInternal -= CameraModePlayerBasic_UpdateInternal;
             IL.RoR2.CameraModes.CameraModePlayerBasic.CollectLookInputInternal -= CameraModePlayerBasic_CollectLookInputInternal;
-            On.EntityStates.GenericCharacterMain.HandleMovements -= GenericCharacterMain_HandleMovements;
+            On.EntityStates.GenericCharacterMain.HandleMovements += GenericCharacterMain_HandleMovements;
             IL.RoR2.GenericSkill.Awake -= GenericSkill_Awake;
+            On.RoR2.CharacterBody.RecalculateStats -= CharacterBody_RecalculateStats1;
+            //On.RoR2.GenericSkill.RecalculateMaxStock += GenericSkill_RecalculateMaxStock;
+            //On.RoR2.GenericSkill.CalculateFinalRechargeInterval += GenericSkill_CalculateFinalRechargeInterval1;
+            //IL.RoR2.GenericSkill.RecalculateMaxStock += GenericSkill_RecalculateMaxStock1;
+            //IL.RoR2.GenericSkill.CalculateFinalRechargeInterval += GenericSkill_CalculateFinalRechargeInterval;
+            IL.RoR2.CharacterMotor.PreMove -= CharacterMotor_PreMove;
+            IL.RoR2.Projectile.ProjectileExplosion.DetonateServer -= ProjectileExplosion_DetonateServer;
+            IL.EntityStates.GenericCharacterMain.ApplyJumpVelocity -= GenericCharacterMain_ApplyJumpVelocity;
+            //IL.RoR2.BulletAttack.Fire += BulletAttack_Fire;
+            On.RoR2.GlobalEventManager.OnCharacterHitGroundServer -= GlobalEventManager_OnCharacterHitGroundServer;
+            ContentManager.collectContentPackProviders -= ContentManager_collectContentPackProviders;
+            On.RoR2.Run.Start -= Run_Start;
+            On.RoR2.RoR2Application.OnLoad -= RoR2Application_OnLoad;
+            On.RoR2.UI.CharacterSelectController.OnEnable -= CharacterSelectController_OnEnable;
+            On.RoR2.CharacterMotor.OnDisable -= CharacterMotor_OnDisable;
+            IL.RoR2.FogDamageController.MyFixedUpdate -= FogDamageController_MyFixedUpdate;
         }
         private bool hooksEnabled = false;
         private void GenericSkill_Awake(ILContext il)
@@ -699,34 +778,451 @@ private void BulletAttack_Fire(ILContext il)
                 Debug.LogError(il.Method.Name + " IL Hook failed!");
             }
         }
+        public struct ModMetaData
+        {
+            public string Guid;
+
+            public string Name;
+        }
+        private void CharacterSelectController_OnEnable(On.RoR2.UI.CharacterSelectController.orig_OnEnable orig, RoR2.UI.CharacterSelectController self)
+        {
+
+            orig(self);
+            SetConfigValues();
+        }
+
+        public delegate void OnConfigApplied(int configId, INetworkConfig networkConfig);
+        private System.Collections.IEnumerator RoR2Application_OnLoad(On.RoR2.RoR2Application.orig_OnLoad orig, RoR2Application self)
+        {
+            SetConfigValues();
+            return orig(self);
+        }
+        public static void CreateResetToDefaultButtonInRiskOfOptionsConfigMenu(string name, string category, string description, string buttonText)
+        {
+            ModMetaData modMetaData = Assembly.GetCallingAssembly().GetModMetaData();
+            ModSettingsManager.AddOption(new GenericButtonOption(name, category, description, buttonText, OnButtonPressed), modMetaData.Guid, modMetaData.Name);
+            void OnButtonPressed()
+            {
+                if (modConfigs.ContainsKey(modMetaData.Guid))
+                {
+                    foreach (var config in modConfigs[modMetaData.Guid])
+                    {
+                        if (config.parameterType == typeof(float))
+                        {
+                            NetworkConfig<float> config2 = (NetworkConfig<float>)config;
+                            config2.configEntry.Value = config2.DefaultValue;
+                            config2.Value = config2.DefaultValue;
+                        }
+                        if (config.parameterType == typeof(int))
+                        {
+                            NetworkConfig<int> config2 = (NetworkConfig<int>)config;
+                            config2.configEntry.Value = config2.DefaultValue;
+                            config2.Value = config2.DefaultValue;
+                        }
+                        if (config.parameterType == typeof(bool))
+                        {
+                            NetworkConfig<bool> config2 = (NetworkConfig<bool>)config;
+                            config2.configEntry.Value = config2.DefaultValue;
+                            config2.Value = config2.DefaultValue;
+                        }
+                    }
+                }
+            }
+        }
+        /// <summary>
+        /// Create new NetworkConfig.
+        /// </summary>
+        public static NetworkConfig<T> CreateConfig<T>(ConfigFile configFile, string section, string key, T defaultValue, string description, OnConfigApplied onConfigApplied = null, NetworkConfig<bool> enableConfig = null, bool generateRiskOfOptionsOption = true)
+        {
+            ConfigEntry<T> configEntry = configFile.Bind<T>(section, key, defaultValue, description);
+            return CreateConfig(configEntry, onConfigApplied, enableConfig, generateRiskOfOptionsOption);
+        }
+        /// <summary>
+        /// Create NetworkConfig from already existing config. Keep in mind that you still need to use NetworkConfig.
+        /// </summary>
+        public static NetworkConfig<T> CreateConfig<T>(ConfigEntry<T> configEntry, OnConfigApplied onConfigApplied = null, NetworkConfig<bool> enableConfig = null, bool generateRiskOfOptionsOption = true)
+        {
+            NetworkConfig<T> config = new NetworkConfig<T>();
+            config.id = networkConfigs.Count;
+            config.enableConfig = enableConfig;
+            config.OnConfigApplied = onConfigApplied;
+            config.configEntry = configEntry;
+            config.configEntry.SettingChanged += ConfigEntry_SettingChanged;
+            networkConfigs.Add(config);
+            ModMetaData modMetaData = Assembly.GetCallingAssembly().GetModMetaData();
+            if (modConfigs.ContainsKey(modMetaData.Guid))
+            {
+                modConfigs[modMetaData.Guid].Add(config);
+            }
+            else
+            {
+                List<INetworkConfig> networkConfigs = new List<INetworkConfig>();
+                networkConfigs.Add(config);
+                modConfigs.Add(modMetaData.Guid, networkConfigs);
+            }
+            if (riskOfOptionsLoaded && generateRiskOfOptionsOption)
+            {
+                if (configEntry is ConfigEntry<float>)
+                {
+                    ModSettingsManager.AddOption(new FloatFieldOption(config.configEntry as ConfigEntry<float>), modMetaData.Guid, modMetaData.Name);
+                }
+                if (configEntry is ConfigEntry<int>)
+                {
+                    ModSettingsManager.AddOption(new IntFieldOption(config.configEntry as ConfigEntry<int>), modMetaData.Guid, modMetaData.Name);
+                }
+                if (configEntry is ConfigEntry<bool>)
+                {
+                    ModSettingsManager.AddOption(new CheckBoxOption(config.configEntry as ConfigEntry<bool>), modMetaData.Guid, modMetaData.Name);
+                }
+            }
+            return config;
+        }
+        private static void ConfigEntry_SettingChanged(object sender, EventArgs e)
+        {
+            SetConfigValues();
+        }
+
+        private void Run_Start(On.RoR2.Run.orig_Start orig, Run self)
+        {
+            orig(self);
+            if (NetworkServer.active)
+            {
+                SetConfigValues();
+            }
+            else
+            {
+                new RequestSyncConfigsNetMessage().Send(NetworkDestination.Server);
+            }
+
+        }
+        public static List<INetworkConfig> networkConfigs = new List<INetworkConfig>();
+
+        public interface INetworkConfig
+        {
+            int id { get; set; }
+            OnConfigApplied OnConfigApplied { get; set; }
+            Type parameterType { get; }
+        }
+        public class NetworkConfig<T> : INetworkConfig
+        {
+            public NetworkConfig<bool> enableConfig;
+            public ConfigEntry<T> configEntry;
+            private T configValue;
+            private OnConfigApplied onConfigApplied;
+            public int configId;
+            public T Value
+            {
+                get
+                {
+                    if (enableConfig != null && enableConfig.Value == false)
+                    {
+                        return DefaultValue;
+                    }
+                    return configValue;
+                }
+                set
+                {
+                    configValue = value;
+                }
+            }
+            public T DefaultValue
+            {
+                get
+                {
+                    return (T)configEntry.DefaultValue;
+                }
+            }
+            public Type parameterType
+            {
+                get
+                {
+                    return typeof(T);
+                }
+            }
+
+            public OnConfigApplied OnConfigApplied
+            {
+                get
+                {
+                    return onConfigApplied;
+                }
+                set
+                {
+                    onConfigApplied = value;
+                }
+            }
+
+            public int id
+            {
+                get
+                {
+                    return configId;
+                }
+                set
+                {
+                    configId = value;
+                }
+            }
+        }
+        /// <summary>
+        /// Updates confings using server values.
+        /// </summary>
+        public static void SetConfigValues()
+        {
+            if (NetworkServer.active)
+            {
+                foreach (INetworkConfig networkConfig in networkConfigs)
+                {
+                    if (networkConfig.parameterType == typeof(float))
+                    {
+                        new SyncConfigsNetMessage(networkConfigs.IndexOf(networkConfig), (networkConfig as NetworkConfig<float>).configEntry.Value.ToString()).Send(NetworkDestination.Clients);
+                    }
+                    if (networkConfig.parameterType == typeof(int))
+                    {
+                        new SyncConfigsNetMessage(networkConfigs.IndexOf(networkConfig), (networkConfig as NetworkConfig<int>).configEntry.Value.ToString()).Send(NetworkDestination.Clients);
+                    }
+                    if (networkConfig.parameterType == typeof(bool))
+                    {
+                        new SyncConfigsNetMessage(networkConfigs.IndexOf(networkConfig), (networkConfig as NetworkConfig<bool>).configEntry.Value.ToString()).Send(NetworkDestination.Clients);
+                    }
+
+                }
+            }
+
+        }
+        public class RequestSyncConfigsNetMessage : INetMessage
+        {
+            public RequestSyncConfigsNetMessage()
+            {
+
+            }
+            public void Deserialize(NetworkReader reader)
+            {
+            }
+
+            public void OnReceived()
+            {
+                SetConfigValues();
+            }
+
+            public void Serialize(NetworkWriter writer)
+            {
+            }
+        }
+        public class SyncConfigsNetMessage : INetMessage
+        {
+            int configId;
+            string input;
+            public SyncConfigsNetMessage(int id, string input)
+            {
+                configId = id;
+                this.input = input;
+            }
+            public SyncConfigsNetMessage()
+            {
+
+            }
+            public void Deserialize(NetworkReader reader)
+            {
+                configId = reader.ReadInt32();
+                input = reader.ReadString();
+            }
+
+            public void OnReceived()
+            {
+                INetworkConfig networkConfig = networkConfigs[configId];
+                if (networkConfig.parameterType == typeof(float))
+                {
+                    NetworkConfig<float> networkConfig1 = networkConfig as NetworkConfig<float>;
+                    networkConfig1.Value = float.Parse(input);
+                    if (!NetworkServer.active)
+                    {
+                        networkConfig1.configEntry.Value += 1f;
+                        networkConfig1.configEntry.Value -= 1f;
+                    }
+
+                }
+                if (networkConfig.parameterType == typeof(int))
+                {
+                    NetworkConfig<int> networkConfig1 = networkConfig as NetworkConfig<int>;
+                    networkConfig1.Value = int.Parse(input);
+                    if (!NetworkServer.active)
+                    {
+                        networkConfig1.configEntry.Value += 1;
+                        networkConfig1.configEntry.Value -= 1;
+                    }
+                }
+                if (networkConfig.parameterType == typeof(bool))
+                {
+                    NetworkConfig<bool> networkConfig1 = networkConfig as NetworkConfig<bool>;
+                    networkConfig1.Value = bool.Parse(input);
+                    if (!NetworkServer.active)
+                    {
+                        networkConfig1.configEntry.Value = !networkConfig1.configEntry.Value;
+                        networkConfig1.configEntry.Value = !networkConfig1.configEntry.Value;
+                    }
+                }
+                if (networkConfig.OnConfigApplied != null)
+                    networkConfig.OnConfigApplied(configId, networkConfig);
+            }
+
+            public void Serialize(NetworkWriter writer)
+            {
+                writer.Write(configId);
+                writer.Write(input);
+            }
+        }
+    }
+    public class AddBuffNetMessage : INetMessage
+    {
+        NetworkInstanceId instanceId;
+        int buffIndex;
+        int amount;
+        float buffTime;
+        public AddBuffNetMessage(NetworkInstanceId networkInstanceId, int buffIndex, int amount, float buffTime)
+        {
+            this.instanceId = networkInstanceId;
+            this.buffIndex = buffIndex;
+            this.amount = amount;
+            this.buffTime = buffTime;
+        }
+        public AddBuffNetMessage(NetworkInstanceId networkInstanceId, BuffIndex buffIndex, int amount, float buffTime)
+        {
+            this.instanceId = networkInstanceId;
+            this.buffIndex = (int)buffIndex;
+            this.amount = amount;
+            this.buffTime = buffTime;
+        }
+        public AddBuffNetMessage(NetworkInstanceId networkInstanceId, BuffDef buffDef, int amount, float buffTime)
+        {
+            this.instanceId = networkInstanceId;
+            this.buffIndex = (int)buffDef.buffIndex;
+            this.amount = amount;
+            this.buffTime = buffTime;
+        }
+        public AddBuffNetMessage()
+        {
+
+        }
+        public void Deserialize(NetworkReader reader)
+        {
+            instanceId = reader.ReadNetworkId();
+            buffIndex = reader.ReadInt32();
+            amount = reader.ReadInt32();
+            buffTime = reader.ReadSingle();
+        }
+
+        public void OnReceived()
+        {
+            if (!NetworkServer.active) return;
+            GameObject gameObject = Util.FindNetworkObject(instanceId);
+            if (gameObject == null) return;
+            CharacterBody characterBody = gameObject.GetComponent<CharacterBody>();
+            if (characterBody == null) return;
+            bool isRemoving = amount <= 0;
+            if (isRemoving) amount *= -1;
+            for (int i = 0; i < amount; i++)
+            {
+                if (isRemoving)
+                {
+                    characterBody.RemoveBuff((BuffIndex)buffIndex);
+                }
+                else
+                {
+                    if (buffTime > 0)
+                    {
+                        characterBody.AddTimedBuff((BuffIndex)buffIndex, buffTime);
+                    }
+                    else
+                    {
+                        characterBody.AddBuff((BuffIndex)buffIndex);
+                    }
+                }
+            }
+
+        }
+
+        public void Serialize(NetworkWriter writer)
+        {
+            writer.Write(instanceId);
+            writer.Write(buffIndex);
+            writer.Write(amount);
+            writer.Write(buffTime);
+        }
+    }
+    public class TimeScaleChangeNetMessage : INetMessage
+    {
+        public float timeScaleChangeAmount;
+        public TimeScaleChangeNetMessage(float value)
+        {
+            timeScaleChangeAmount = value;
+        }
+        public TimeScaleChangeNetMessage()
+        {
+
+        }
+        public void Deserialize(NetworkReader reader)
+        {
+            timeScaleChangeAmount = reader.ReadSingle();
+        }
+
+        public void OnReceived()
+        {
+            Time.timeScale = timeScaleChangeAmount;
+        }
+
+        public void Serialize(NetworkWriter writer)
+        {
+            writer.Write(timeScaleChangeAmount);
+        }
     }
     public class Assets
     {
+        /// <summary>
+        /// Body will sprint all time. All sprinting negative effects will be nullified.
+        /// </summary>
         public static CharacterBodyAPI.ModdedBodyFlag SprintAllTime = CharacterBodyAPI.ReserveBodyFlag();
+        /// <summary>
+        /// Body will not receive damage from Fog. Fog bonus damage still increases.
+        /// </summary>
+        public static CharacterBodyAPI.ModdedBodyFlag ImmuneToVoidFog = CharacterBodyAPI.ReserveBodyFlag();
+        /// <summary>
+        /// Jumping will not reset horizontal velocity.
+        /// </summary>
         public static BuffDef BunnyHopBuff = Utils.CreateBuff("bapiBunnyHop", null, Color.white, false, false, false, true, true);
+        /// <summary>
+        /// Perpendicullar to horizontal velocity movement will make a sharp turn.
+        /// </summary>
         public static BuffDef StrafeBuff = Utils.CreateBuff("bapiStrafing", null, Color.white, false, false, false, true, true);
-        public struct EntityStateMachineAddition
+        public struct EntityStateMachineAdditionInfo
         {
             public string entityStateMachineName;
             public Type initialStateType;
             public Type mainStateType;
         }
     }
+    /// <summary>
+    /// Gives a method that runs on ProjectileExplosion Detonate method.
+    /// </summary>
     public interface IOnProjectileExplosionDetonate
     {
         public void OnProjectileExplosionDetonate(BlastAttack blastAttack, BlastAttack.Result result);
     }
+    /// <summary>
+    /// Applies velocity to filtered targets on projectile explosion.
+    /// </summary>
+    [RequireComponent(typeof(ProjectileExplosion))]
     public class RocketJumpComponent : MonoBehaviour, IOnProjectileExplosionDetonate
     {
         public float force = 3000f;
-        public AnimationCurve verticalForceReduction;
+        public AnimationCurve verticalForceReduction = AnimationCurve.EaseInOut(0f, 0f, 1f, 1f);
         public float radiusMultiplier = 1.25f;
         public bool disableAirControl = true;
         public bool applyStrafing = true;
         public RocketJumpFiltering rocketJumpFiltering;
         public void OnProjectileExplosionDetonate(BlastAttack blastAttack, BlastAttack.Result result)
         {
-            Collider[] colliders = Physics.OverlapSphere(blastAttack.position, blastAttack.radius * radiusMultiplier, LayerIndex.playerBody.mask + LayerIndex.enemyBody.mask, QueryTriggerInteraction.UseGlobal);
+            Collider[] colliders = Physics.OverlapSphere(blastAttack.position, blastAttack.radius * radiusMultiplier);
             List<CharacterBody> li = new List<CharacterBody>();
             foreach (Collider collider in colliders)
             {
@@ -768,10 +1264,10 @@ private void BulletAttack_Fire(ILContext il)
                 if (applyStrafing && body.characterMotor && body.GetBuffCount(StrafeBuff) <= 0)
                 {
                     body.AddBuff(StrafeBuff);
-                    onHitGroundServerDictionary.AddValueToListInDictionary(body.characterMotor, sus);
+                    body.characterMotor.AddOnHitGroundServerDelegate(sus);
                     void sus(CharacterMotor characterMotor, ref CharacterMotor.HitGroundInfo hitGroundInfo)
                     {
-                        onHitGroundServerDictionary.RemoveValueFromListInDictionary(body.characterMotor, sus);
+                        body.characterMotor.RemoveOnHitGroundServerDelegate(sus);
                         body.RemoveBuff(StrafeBuff);
                     }
                 }
@@ -784,6 +1280,11 @@ private void BulletAttack_Fire(ILContext il)
             Everyone
         }
     }
+    /// <summary>
+    /// Projectile rotates towards owner point of view or view direction if there is no point.
+    /// </summary>
+    [RequireComponent(typeof(ProjectileController))]
+    [RequireComponent(typeof(Rigidbody))]
     public class GuidedProjectile : MonoBehaviour
     {
         public Rigidbody rigidbody;
@@ -833,16 +1334,19 @@ private void BulletAttack_Fire(ILContext il)
         {
             return (1f - maxChance / (maxChance + amplificationPercentage)) * maxChance;
         }
-        public static EntityStateMachine AddEntityStateMachine(CharacterBody characterBody, EntityStateMachineAddition entityStateMachineAddition)
+        /// <summary>
+        /// Add new EntityStateMachine component to the body and wire everything needed.
+        /// </summary>
+        public static EntityStateMachine AddEntityStateMachine(CharacterBody characterBody, EntityStateMachineAdditionInfo entityStateMachineAdditionInfo)
         {
             NetworkStateMachine networkStateMachine = characterBody.GetComponent<NetworkStateMachine>();
             List<EntityStateMachine> entityStateMachines = networkStateMachine ? networkStateMachine.stateMachines.ToList() : null;
             EntityStateMachine entityStateMachine = characterBody.gameObject.AddComponent<EntityStateMachine>();
-            EntityStates.SerializableEntityStateType serializableEntityStateType = new EntityStates.SerializableEntityStateType(entityStateMachineAddition.mainStateType ?? typeof(EntityStates.Idle));
-            EntityStates.SerializableEntityStateType serializableEntityStateType2 = new EntityStates.SerializableEntityStateType(entityStateMachineAddition.initialStateType ?? typeof(EntityStates.Idle));
+            EntityStates.SerializableEntityStateType serializableEntityStateType = new EntityStates.SerializableEntityStateType(entityStateMachineAdditionInfo.mainStateType ?? typeof(EntityStates.Idle));
+            EntityStates.SerializableEntityStateType serializableEntityStateType2 = new EntityStates.SerializableEntityStateType(entityStateMachineAdditionInfo.initialStateType ?? typeof(EntityStates.Idle));
             entityStateMachine.mainStateType = serializableEntityStateType;
             entityStateMachine.initialStateType = serializableEntityStateType2;
-            entityStateMachine.customName = entityStateMachineAddition.entityStateMachineName;
+            entityStateMachine.customName = entityStateMachineAdditionInfo.entityStateMachineName;
             if (networkStateMachine)
             {
                 entityStateMachines.Add(entityStateMachine);
@@ -854,12 +1358,15 @@ private void BulletAttack_Fire(ILContext il)
                 networkStateMachine.stateMachines = entityStateMachines.ToArray();
             return entityStateMachine;
         }
-        public static List<EntityStateMachine> AddEntityStateMachines(CharacterBody characterBody, List<EntityStateMachineAddition> entityStateMachineAdditions)
+        /// <summary>
+        /// Add new EntityStateMachine components to the body and wire everything needed.
+        /// </summary>
+        public static List<EntityStateMachine> AddEntityStateMachines(CharacterBody characterBody, List<EntityStateMachineAdditionInfo> entityStateMachineAdditionInfos)
         {
             NetworkStateMachine networkStateMachine = characterBody.GetComponent<NetworkStateMachine>();
             List<EntityStateMachine> entityStateMachines = networkStateMachine ? networkStateMachine.stateMachines.ToList() : null;
             List<EntityStateMachine> newEntityStateMachines = new List<EntityStateMachine>();
-            foreach (var entityStateMachineAddition in entityStateMachineAdditions)
+            foreach (var entityStateMachineAddition in entityStateMachineAdditionInfos)
             {
                 EntityStateMachine entityStateMachine = characterBody.gameObject.AddComponent<EntityStateMachine>();
                 EntityStates.SerializableEntityStateType serializableEntityStateType = new EntityStates.SerializableEntityStateType(entityStateMachineAddition.mainStateType ?? typeof(EntityStates.Idle));
@@ -879,6 +1386,13 @@ private void BulletAttack_Fire(ILContext il)
             if(networkStateMachine)
             networkStateMachine.stateMachines = entityStateMachines.ToArray();
             return newEntityStateMachines;
+        }
+        /// <summary>
+        /// Change timescale with a desired value for all clients.
+        /// </summary>
+        public static void ChangeTimescaleForAllClients(float value)
+        {
+            new TimeScaleChangeNetMessage(value);
         }
     }
     public class ContentPacks : IContentPackProvider
@@ -937,30 +1451,52 @@ private void BulletAttack_Fire(ILContext il)
         public static void AddExtraSkill(this GenericSkill skill, GenericSkill extraSkill) => BrynzaInterop.AddExtraSkill(skill, extraSkill);
         public static List<GenericSkill> GetExtraSkills(this GenericSkill skill) => BrynzaInterop.GetExtraSkills(skill);
         public static void RemoveExtraSkill(this GenericSkill skill, GenericSkill extraSkill) => BrynzaInterop.RemoveExtraSkill(skill, extraSkill);
+        /// <summary>
+        /// Links Generic Skill to take its cooldownScale, bonusStockFromBody and flatCooldownReduction values.
+        /// </summary>
         public static void LinkSkill(this GenericSkill genericSkill, GenericSkill linkSKill) => BrynzaInterop.LinkSkill(genericSkill, linkSKill);
+        /// <summary>
+        /// Gets linked skill.
+        /// </summary>
         public static GenericSkill GetLinkedSkill(this GenericSkill genericSkill) => BrynzaInterop.GetLinkedSkill(genericSkill);
         public static void AddBonusSkill(this SkillLocator skillLocator, GenericSkill bonusSkill) => BrynzaInterop.AddBonusSkill(skillLocator, bonusSkill);
         public static void RemoveBonusSkill(this SkillLocator skillLocator, GenericSkill bonusSkill) => BrynzaInterop.RemoveBonusSkill(skillLocator, bonusSkill);
         public static List<GenericSkill> GetBonusSkills(this SkillLocator skillLocator) => BrynzaInterop.GetBonusSkills(skillLocator);
+        /// <summary>
+        /// Set Character Motor to always move by this Vector if it's not zero.
+        /// </summary>
         public static void SetVelocityOverride(this CharacterMotor characterMotor, Vector3 vector3) => BrynzaInterop.SetVelocityOverride(characterMotor, vector3);
         public static Vector3 GetVelocityOverride(this CharacterMotor characterMotor) => BrynzaInterop.GetVelocityOverride(characterMotor);
+        /// <summary>
+        /// Set Character Motor movement to take current velocity.
+        /// </summary>
         public static void SetKeepVelocityOnMoving(this CharacterMotor characterMotor, bool flag) => BrynzaInterop.SetKeepVelocityOnMoving(characterMotor, flag);
         public static bool GetKeepVelocityOnMoving(this CharacterMotor characterMotor) => BrynzaInterop.GetKeepVelocityOnMoving(characterMotor);
+        /// <summary>
+        /// Set Character Motor to have consistent air acceleration.
+        /// </summary>
         public static void SetConsistentAcceleration(this CharacterMotor characterMotor, float value) => BrynzaInterop.SetConsistentAcceleration(characterMotor, value);
         public static float GetConsistentAcceleration(this CharacterMotor characterMotor) => BrynzaInterop.GetConsistentAcceleration(characterMotor);
+        [Obsolete("Doesn't work as intended", true)]
         public static void SetFluidMaxDistanceDelta(this CharacterMotor characterMotor, bool flag) => BrynzaInterop.SetFluidMaxDistanceDelta(characterMotor, flag);
         public static bool GetFluidMaxDistanceDelta(this CharacterMotor characterMotor) => BrynzaInterop.GetFluidMaxDistanceDelta(characterMotor);
         public static void SetStrafe(this CharacterMotor characterMotor, bool flag) => BrynzaInterop.SetStrafe(characterMotor, flag);
         public static bool GetStrafe(this CharacterMotor characterMotor) => (BrynzaInterop.GetStrafe(characterMotor)) || (characterMotor && characterMotor.body && characterMotor.body.GetBuffCount(Assets.StrafeBuff) > 0);
         public static void SetBunnyHop(this CharacterMotor characterMotor, bool flag) => BrynzaInterop.SetBunnyHop(characterMotor, flag);
         public static bool GetBunnyHop(this CharacterMotor characterMotor) => (BrynzaInterop.GetBunnyHop(characterMotor)) || (characterMotor && characterMotor.body && characterMotor.body.GetBuffCount(Assets.BunnyHopBuff) > 0);
-        public static void AddOnHitGroundServerDelegate(this CharacterMotor characterMotor, OnHitGroundDelegate hitGroundDelegate)
+        /// <summary>
+        /// Add onHitGroundServer event.
+        /// </summary>
+        public static void AddOnHitGroundServerDelegate(this CharacterMotor characterMotor, OnHitGroundServerDelegate hitGroundServerDelegate)
         {
-            BrynzaAPI.onHitGroundServerDictionary.AddValueToListInDictionary(characterMotor, hitGroundDelegate);
+            BrynzaAPI.onHitGroundServerDictionary.AddValueToListInDictionary(characterMotor, hitGroundServerDelegate);
         }
-        public static void RemoveOnHitGroundServerDelegate(this CharacterMotor characterMotor, OnHitGroundDelegate hitGroundDelegate)
+        /// <summary>
+        /// Remove onHitGroundServer event.
+        /// </summary>
+        public static void RemoveOnHitGroundServerDelegate(this CharacterMotor characterMotor, OnHitGroundServerDelegate hitGroundServerDelegate)
         {
-            BrynzaAPI.onHitGroundServerDictionary.RemoveValueFromListInDictionary(characterMotor, hitGroundDelegate);
+            BrynzaAPI.onHitGroundServerDictionary.RemoveValueFromListInDictionary(characterMotor, hitGroundServerDelegate);
         }
         //public static void SetWeaponOverride(this BulletAttack bulletAttack, GameObject gameObject) => BrynzaInterop.SetWeaponOverride(bulletAttack, gameObject);
         //public static GameObject GetWeaponOverride(this BulletAttack bulletAttack) => BrynzaInterop.GetWeaponOverride(bulletAttack);
@@ -977,6 +1513,58 @@ private void BulletAttack_Fire(ILContext il)
         public static T GetOrAddComponent<T>(this Transform transform) where T : Component
         {
             return transform.gameObject.GetOrAddComponent<T>();
+        }
+        public static void AddBuffAuthotiry(this CharacterBody characterBody, BuffDef buffDef, int amount)
+        {
+            characterBody.AddBuffAuthotiry(buffDef.buffIndex, amount);
+        }
+        public static void AddBuffAuthotiry(this CharacterBody characterBody, BuffIndex buffIndex, int amount)
+        {
+            characterBody.AddOrRemoveBuffAuthotiry(buffIndex, amount);
+        }
+        public static void RemoveBuffAuthotiry(this CharacterBody characterBody, BuffDef buffDef, int amount)
+        {
+            characterBody.RemoveBuffAuthotiry(buffDef.buffIndex, amount);
+        }
+        public static void RemoveBuffAuthotiry(this CharacterBody characterBody, BuffIndex buffIndex, int amount)
+        {
+            characterBody.AddOrRemoveBuffAuthotiry(buffIndex, -amount);
+        }
+        public static void AddBuffAuthotiry(this CharacterBody characterBody, BuffDef buffDef)
+        {
+            characterBody.AddBuffAuthotiry(buffDef.buffIndex);
+        }
+        public static void AddBuffAuthotiry(this CharacterBody characterBody, BuffIndex buffIndex)
+        {
+            characterBody.AddOrRemoveBuffAuthotiry(buffIndex, 1);
+        }
+        public static void RemoveBuffAuthotiry(this CharacterBody characterBody, BuffDef buffDef)
+        {
+            characterBody.RemoveBuffAuthotiry(buffDef.buffIndex);
+        }
+        public static void RemoveBuffAuthotiry(this CharacterBody characterBody, BuffIndex buffIndex)
+        {
+            characterBody.AddOrRemoveBuffAuthotiry(buffIndex, -1);
+        }
+        public static void AddOrRemoveBuffAuthotiry(this CharacterBody characterBody, BuffDef buffDef, int amount)
+        {
+            characterBody.AddOrRemoveBuffAuthotiry(buffDef.buffIndex, amount);
+        }
+        public static void AddOrRemoveBuffAuthotiry(this CharacterBody characterBody, BuffIndex buffIndex, int amount)
+        {
+            new AddBuffNetMessage(characterBody.netId, buffIndex, amount, -1f).Send(NetworkDestination.Server);
+        }
+        public static void AddTimedBuffAuthotiry(this CharacterBody characterBody, BuffDef buffDef, int amount, float duration)
+        {
+            characterBody.AddTimedBuffAuthotiry(buffDef.buffIndex, amount, duration);
+        }
+        public static void AddTimedBuffAuthotiry(this CharacterBody characterBody, BuffIndex buffIndex, int amount, float duration)
+        {
+            new AddBuffNetMessage(characterBody.netId, buffIndex, amount, duration).Send(NetworkDestination.Server);
+        }
+        public static void ChangeTimescaleForAllClients(this Time time, float value)
+        {
+            Utils.ChangeTimescaleForAllClients(value);
         }
         public static bool MatchStfldOut<T>(this Instruction instr, string name, out ILLabel iLLabel)
         {
@@ -1010,6 +1598,24 @@ private void BulletAttack_Fire(ILContext il)
                     keyValuePairs.Remove(t1);
                 }
             }
+        }
+        internal static ModMetaData GetModMetaData(this Assembly assembly)
+        {
+            ModMetaData modMetaData = default;
+
+            Type[] types = assembly.GetExportedTypes();
+
+            foreach (var item in types)
+            {
+                BepInPlugin bepInPlugin = item.GetCustomAttribute<BepInPlugin>();
+
+                if (bepInPlugin == null) continue;
+
+                modMetaData.Guid = bepInPlugin.GUID;
+                modMetaData.Name = bepInPlugin.Name;
+            }
+
+            return modMetaData;
         }
     }
 }
