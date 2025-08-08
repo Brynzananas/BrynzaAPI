@@ -15,5 +15,6 @@ namespace RoR2
         public bool bapi_fluidMaxDistanceDelta;
         public bool bapi_strafe;
         public bool bapi_bunnyHop;
+        public int bapi_wallJumpCount;
     }
 }

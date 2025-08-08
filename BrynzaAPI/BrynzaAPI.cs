@@ -34,6 +34,16 @@ using BepInEx.Configuration;
 using R2API.Networking;
 using RiskOfOptions.Options;
 using RiskOfOptions;
+using UnityEngine.UI;
+using static BrynzaAPI.SniperHurtboxTracker;
+using System.Data.SqlTypes;
+using MonoMod.RuntimeDetour;
+using EntityStates;
+using KinematicCharacterController;
+using static RoR2.CameraModes.CameraModeBase;
+using UnityEngine.SceneManagement;
+using static System.Collections.Specialized.BitVector32;
+using UnityEngine.AddressableAssets;
 
 [assembly: SecurityPermission(SecurityAction.RequestMinimum, SkipVerification = true)]
 [assembly: HG.Reflection.SearchableAttribute.OptIn]
@@ -53,24 +63,70 @@ namespace BrynzaAPI
     {
         public const string ModGuid = "com.brynzananas.brynzaapi";
         public const string ModName = "Brynza API";
-        public const string ModVer = "1.2.0";
+        public const string ModVer = "1.3.0";
         public static Dictionary<CharacterMotor, List<OnHitGroundServerDelegate>> onHitGroundServerDictionary = new Dictionary<CharacterMotor, List<OnHitGroundServerDelegate>>();
         public delegate void OnHitGroundServerDelegate(CharacterMotor characterMotor, ref CharacterMotor.HitGroundInfo hitGroundInfo);
         public static bool riskOfOptionsLoaded = false;
         public static BepInEx.Configuration.ConfigFile ConfigMain;
         public static Dictionary<string, List<INetworkConfig>> modConfigs = new Dictionary<string, List<INetworkConfig>>();
+        public static List<GameObject> activeSniperHurtboxTrackers = new List<GameObject>();
+        public static event Action<GameObject> onSniperHurtboxAdded;
+        public static event Action<GameObject> onSniperHurtboxRemoved;
+        [Obsolete]
+        private static Vector3 worldCrosshairPositionOverride = Vector3.zero;
+        public static Dictionary<string, string> _tokenKeywords = new Dictionary<string, string>();
+        private static string[] tokenKeywordsKeys = new string[0];
+        public static HGButton loadoutSectionButton;
+        public static GameObject loadoutSectionHolder;
+        public const string LoadoutMainSectionToken = "LOADOUT_SECTION_MAIN";
+        private static bool takeServerConfigValues
+        {
+            get { return (Run.instance || SceneManager.GetActiveScene().name == "lobby"); }
+        }
+        public static Dictionary<string, string> tokenKeywords
+        {
+            get { return _tokenKeywords; }
+            set { tokenKeywordsKeys = value.Keys.ToArray(); _tokenKeywords = value; }
+        }
+        private Harmony harmonyPatcher;
         public void Awake()
         {
             ConfigMain = Config;
             NetworkingAPI.RegisterMessageType<SyncConfigsNetMessage>();
             NetworkingAPI.RegisterMessageType<RequestSyncConfigsNetMessage>();
             riskOfOptionsLoaded = BepInEx.Bootstrap.Chainloader.PluginInfos.ContainsKey(RiskOfOptions.PluginInfo.PLUGIN_GUID);
+            loadoutSectionButton = Addressables.LoadAssetAsync<GameObject>("RoR2/Base/UI/CharacterSelectUIMain.prefab").WaitForCompletion().transform.Find("SafeArea/LeftHandPanel (Layer: Main)/SurvivorInfoPanel, Active (Layer: Secondary)/SubheaderPanel (Overview, Skills, Loadout)/GenericMenuButton (Overview)").gameObject.GetComponent<HGButton>();
+            RectTransform rectTransform = loadoutSectionButton.gameObject.GetComponent<RectTransform>();
+            rectTransform.sizeDelta = new Vector2(64f, 64f);
+            loadoutSectionButton.onClick.RemoveAllListeners();
+            Utils.AddLanguageToken(LoadoutMainSectionToken, "Main");
+            Utils.AddLanguageToken(LoadoutMainSectionToken, "Основной", "ru");
+            //Languages further have been written using Yandex Translator. If it's wrong, please let me know!
+            //Utils.AddLanguageToken(LoadoutMainSectionToken, "الرئيسية", "ar");
+            //Utils.AddLanguageToken(LoadoutMainSectionToken, "Главни", "bg");
+            Utils.AddLanguageToken(LoadoutMainSectionToken, "主要", "zh-CN");
+            //Utils.AddLanguageToken(LoadoutMainSectionToken, "主要", "zh-TW");
+            //Utils.AddLanguageToken(LoadoutMainSectionToken, "Hlaveň", "cs");
+            //Utils.AddLanguageToken(LoadoutMainSectionToken, "Vigtigste", "nl");
+            //Utils.AddLanguageToken(LoadoutMainSectionToken, "Main", "fi");
+            Utils.AddLanguageToken(LoadoutMainSectionToken, "Principale", "fr");
+            Utils.AddLanguageToken(LoadoutMainSectionToken, "Wichtigsten", "de");
+            //Utils.AddLanguageToken(LoadoutMainSectionToken, "Κύριος", "el");
+            Utils.AddLanguageToken(LoadoutMainSectionToken, "Principale", "it");
+            Utils.AddLanguageToken(LoadoutMainSectionToken, "メイン", "ja");
+            Utils.AddLanguageToken(LoadoutMainSectionToken, "주요", "ko");
+            //Utils.AddLanguageToken(LoadoutMainSectionToken, "Viktigste", "no");
+            //Utils.AddLanguageToken(LoadoutMainSectionToken, "Principal", "pt");
+            Utils.AddLanguageToken(LoadoutMainSectionToken, "Principal", "pt-BR");
+            Utils.AddLanguageToken(LoadoutMainSectionToken, "Ana", "tr");
+            Utils.AddLanguageToken(LoadoutMainSectionToken, "Principal", "es");
             SetHooks();
         }
         public void OnDestroy()
         {
             UnsetHooks();
         }
+        #region Hooks
         private void SetHooks()
         {
             if (hooksEnabled) return;
@@ -82,7 +138,7 @@ namespace BrynzaAPI
             IL.RoR2.CameraModes.CameraModePlayerBasic.CollectLookInputInternal += CameraModePlayerBasic_CollectLookInputInternal;
             On.EntityStates.GenericCharacterMain.HandleMovements += GenericCharacterMain_HandleMovements;
             IL.RoR2.GenericSkill.Awake += GenericSkill_Awake;
-            On.RoR2.CharacterBody.RecalculateStats += CharacterBody_RecalculateStats1;
+            //On.RoR2.CharacterBody.RecalculateStats += CharacterBody_RecalculateStats1;
             //On.RoR2.GenericSkill.RecalculateMaxStock += GenericSkill_RecalculateMaxStock;
             //On.RoR2.GenericSkill.CalculateFinalRechargeInterval += GenericSkill_CalculateFinalRechargeInterval1;
             //IL.RoR2.GenericSkill.RecalculateMaxStock += GenericSkill_RecalculateMaxStock1;
@@ -98,6 +154,870 @@ namespace BrynzaAPI
             On.RoR2.UI.CharacterSelectController.OnEnable += CharacterSelectController_OnEnable;
             On.RoR2.CharacterMotor.OnDisable += CharacterMotor_OnDisable;
             IL.RoR2.FogDamageController.MyFixedUpdate += FogDamageController_MyFixedUpdate;
+            On.RoR2.HurtBox.OnEnable += HurtBox_OnEnable;
+            On.RoR2.HurtBox.OnDisable += HurtBox_OnDisable;
+            IL.RoR2.HealthComponent.TakeDamageProcess += HealthComponent_TakeDamageProcess;
+            IL.EntityStates.GenericCharacterMain.ProcessJump_bool += GenericCharacterMain_ProcessJump_bool;
+            IL.RoR2.CharacterMotor.OnLanded += CharacterMotor_OnLanded;
+            IL.RoR2.CharacterBody.RecalculateStats += CharacterBody_RecalculateStats;
+            //IL.RoR2.GenericSkill.SetBonusStockFromBody += GenericSkill_SetBonusStockFromBody;
+            //On.RoR2.GenericSkill.CanApplyAmmoPack += GenericSkill_CanApplyAmmoPack;
+            //IL.RoR2.CameraModes.CameraModePlayerBasic.UpdateCrosshair += CameraModePlayerBasic_UpdateCrosshair;
+            //IL.RoR2.CameraRigController.LateUpdate += CameraRigController_LateUpdate;
+            //IL.RoR2.CameraRigController.SetCameraState += CameraRigController_SetCameraState;
+            //On.RoR2.CameraRigController.SetCameraState += CameraRigController_SetCameraState1;
+            On.RoR2.BulletAttack.ProcessHit += BulletAttack_ProcessHit;
+            On.RoR2.UI.LoadoutPanelController.Awake += LoadoutPanelController_Awake;
+            IL.RoR2.UI.LoadoutPanelController.Row.FromSkillSlot += Row_FromSkillSlot;
+            On.RoR2.UI.LoadoutPanelController.DestroyRows += LoadoutPanelController_DestroyRows;
+            On.RoR2.UI.LoadoutPanelController.Row.FinishSetup += Row_FinishSetup;
+            IL.RoR2.UI.LoadoutPanelController.Row.FromSkin += Row_FromSkin;
+            On.RoR2.UI.LoadoutPanelController.Rebuild += LoadoutPanelController_Rebuild;
+            RoR2Application.onLoadFinished += OnRoR2Loaded;
+        }
+        private void UnsetHooks()
+        {
+            if (!hooksEnabled) return;
+            hooksEnabled = false;
+            IL.RoR2.Skills.SkillDef.OnFixedUpdate -= SkillDef_OnFixedUpdate;
+            IL.RoR2.Skills.SkillDef.OnExecute -= SkillDef_OnExecute;
+            IL.RoR2.UI.CrosshairManager.UpdateCrosshair -= CrosshairManager_UpdateCrosshair1;
+            IL.RoR2.CameraModes.CameraModePlayerBasic.UpdateInternal -= CameraModePlayerBasic_UpdateInternal;
+            IL.RoR2.CameraModes.CameraModePlayerBasic.CollectLookInputInternal -= CameraModePlayerBasic_CollectLookInputInternal;
+            On.EntityStates.GenericCharacterMain.HandleMovements += GenericCharacterMain_HandleMovements;
+            IL.RoR2.GenericSkill.Awake -= GenericSkill_Awake;
+            On.RoR2.CharacterBody.RecalculateStats -= CharacterBody_RecalculateStats1;
+            //On.RoR2.GenericSkill.RecalculateMaxStock += GenericSkill_RecalculateMaxStock;
+            //On.RoR2.GenericSkill.CalculateFinalRechargeInterval += GenericSkill_CalculateFinalRechargeInterval1;
+            //IL.RoR2.GenericSkill.RecalculateMaxStock += GenericSkill_RecalculateMaxStock1;
+            //IL.RoR2.GenericSkill.CalculateFinalRechargeInterval += GenericSkill_CalculateFinalRechargeInterval;
+            IL.RoR2.CharacterMotor.PreMove -= CharacterMotor_PreMove;
+            IL.RoR2.Projectile.ProjectileExplosion.DetonateServer -= ProjectileExplosion_DetonateServer;
+            IL.EntityStates.GenericCharacterMain.ApplyJumpVelocity -= GenericCharacterMain_ApplyJumpVelocity;
+            //IL.RoR2.BulletAttack.Fire += BulletAttack_Fire;
+            On.RoR2.GlobalEventManager.OnCharacterHitGroundServer -= GlobalEventManager_OnCharacterHitGroundServer;
+            ContentManager.collectContentPackProviders -= ContentManager_collectContentPackProviders;
+            On.RoR2.Run.Start -= Run_Start;
+            On.RoR2.RoR2Application.OnLoad -= RoR2Application_OnLoad;
+            On.RoR2.UI.CharacterSelectController.OnEnable -= CharacterSelectController_OnEnable;
+            On.RoR2.CharacterMotor.OnDisable -= CharacterMotor_OnDisable;
+            IL.RoR2.FogDamageController.MyFixedUpdate -= FogDamageController_MyFixedUpdate;
+            On.RoR2.HurtBox.OnEnable -= HurtBox_OnEnable;
+            On.RoR2.HurtBox.OnDisable -= HurtBox_OnDisable;
+            IL.RoR2.HealthComponent.TakeDamageProcess -= HealthComponent_TakeDamageProcess;
+            IL.EntityStates.GenericCharacterMain.ProcessJump_bool -= GenericCharacterMain_ProcessJump_bool;
+            IL.RoR2.CharacterMotor.OnLanded -= CharacterMotor_OnLanded;
+            IL.RoR2.CharacterBody.RecalculateStats -= CharacterBody_RecalculateStats;
+            //IL.RoR2.GenericSkill.SetBonusStockFromBody += GenericSkill_SetBonusStockFromBody;
+            //On.RoR2.GenericSkill.CanApplyAmmoPack += GenericSkill_CanApplyAmmoPack;
+            //IL.RoR2.CameraModes.CameraModePlayerBasic.UpdateCrosshair += CameraModePlayerBasic_UpdateCrosshair;
+            //IL.RoR2.CameraRigController.LateUpdate += CameraRigController_LateUpdate;
+            //IL.RoR2.CameraRigController.SetCameraState += CameraRigController_SetCameraState;
+            //On.RoR2.CameraRigController.SetCameraState += CameraRigController_SetCameraState1;
+            On.RoR2.BulletAttack.ProcessHit -= BulletAttack_ProcessHit;
+            On.RoR2.UI.LoadoutPanelController.Awake -= LoadoutPanelController_Awake;
+            IL.RoR2.UI.LoadoutPanelController.Row.FromSkillSlot -= Row_FromSkillSlot;
+            On.RoR2.UI.LoadoutPanelController.DestroyRows -= LoadoutPanelController_DestroyRows;
+            On.RoR2.UI.LoadoutPanelController.Row.FinishSetup -= Row_FinishSetup;
+            IL.RoR2.UI.LoadoutPanelController.Row.FromSkin -= Row_FromSkin;
+            On.RoR2.UI.LoadoutPanelController.Rebuild -= LoadoutPanelController_Rebuild;
+            RoR2Application.onLoadFinished -= OnRoR2Loaded;
+        }
+        private bool hooksEnabled = false;
+        private void OnRoR2Loaded()
+        {
+            StartCoroutine(AddLanguageTokens());
+        }
+        private IEnumerator AddLanguageTokens()
+        {
+            while (LanguageTokensToAddOnLoad.languageTokensToAddOnLoad.Count > 0)
+            {
+                LanguageTokensToAddOnLoad.languageTokensToAddOnLoad[0].Dispose();
+                yield return null;
+            }
+            yield break;
+        }
+        
+        private void LoadoutPanelController_Rebuild(On.RoR2.UI.LoadoutPanelController.orig_Rebuild orig, LoadoutPanelController self)
+        {
+            orig(self);
+            int rowsCount = Section.sections.Count;
+            if (rowsCount <= 0) return;
+            if (rowsCount == 1)
+            {
+                ClearSections();
+                return;
+            }
+            else
+            {
+                LayoutElement layoutElement = loadoutSectionHolder ? loadoutSectionHolder.GetComponent<LayoutElement>() : null;
+                if (layoutElement != null)
+                {
+                    layoutElement.minHeight = 32f;
+                    layoutElement.preferredHeight = 48f;
+                }
+                Utils.SelectRowsSection(LoadoutMainSectionToken);
+            }
+
+        }
+
+        private void Row_FromSkin(ILContext il)
+        {
+            ILCursor c = new ILCursor(il);
+            //int newLocal = il.Body.Variables.Count;
+            //il.Body.Variables.Add(new(il.Import(typeof(Transform))));
+            if (c.TryGotoNext(MoveType.After,
+                    x => x.MatchNewobj<LoadoutPanelController.Row>()
+                ))
+            {
+                //c.Index++;
+                c.Emit(OpCodes.Dup);
+                c.EmitDelegate(SetSection);
+                void SetSection(LoadoutPanelController.Row row)
+                {
+                    string section = LoadoutMainSectionToken;
+                    CreateSection(row, section);
+                }
+            }
+            else
+            {
+                Debug.LogError(il.Method.Name + " IL Hook failed!");
+            }
+        }
+        private static void CreateSection(LoadoutPanelController.Row row, string sectionName)
+        {
+            if (Section.sectionByName.ContainsKey(sectionName))
+            {
+                Section section = Section.sectionByName[sectionName];
+                section.rows.Add(row);
+            }
+            else
+            {
+                Section section = new Section(sectionName, row.primaryColor);
+                section.rows.Add(row);
+            }
+        }
+        private void Row_FinishSetup(On.RoR2.UI.LoadoutPanelController.Row.orig_FinishSetup orig, LoadoutPanelController.Row self, bool addWIPIcons)
+        {
+            orig(self, addWIPIcons);
+            //string section = self.GetSection();
+            //if (rows.ContainsKey(section))
+            //{
+            //    rows[section].Add(self);
+            //}
+            //else
+            //{
+            //    List<LoadoutPanelController.Row> rows2 = new List<LoadoutPanelController.Row>();
+            //    rows2.Add(self);
+            //    rows.Add(section, rows2);
+            //}
+        }
+        private static void ClearSections()
+        {
+            while (Section.sections.Count > 0)
+            {
+                Section.sections[0].Dispose();
+            }
+            LayoutElement layoutElement = loadoutSectionHolder ? loadoutSectionHolder.GetComponent<LayoutElement>() : null;
+            if(layoutElement != null)
+            {
+                layoutElement.minHeight = 0f;
+                layoutElement.preferredHeight = 0f;
+            }
+        }
+        private void LoadoutPanelController_DestroyRows(On.RoR2.UI.LoadoutPanelController.orig_DestroyRows orig, LoadoutPanelController self)
+        {
+            ClearSections();
+            orig(self);
+        }
+
+        private void Row_FromSkillSlot(ILContext il)
+        {
+            ILCursor c = new ILCursor(il);
+            //int newLocal = il.Body.Variables.Count;
+            //il.Body.Variables.Add(new(il.Import(typeof(Transform))));
+            if (c.TryGotoNext(MoveType.After,
+                    x => x.MatchNewobj<LoadoutPanelController.Row>()
+                ))
+            {
+                //c.Index++;
+                c.Emit(OpCodes.Dup);
+                c.Emit(OpCodes.Ldarg_3);
+                c.EmitDelegate(SetSection);
+                void SetSection(LoadoutPanelController.Row row, GenericSkill genericSkill)
+                {
+                    string section = genericSkill.GetSection();
+                    if (section == null || section == "")
+                    {
+                        section = LoadoutMainSectionToken;
+                    }
+                    CreateSection(row, section);
+                }
+            }
+            else
+            {
+                Debug.LogError(il.Method.Name + " IL Hook failed!");
+            }
+        }
+        private void LoadoutPanelController_Awake(On.RoR2.UI.LoadoutPanelController.orig_Awake orig, LoadoutPanelController self)
+        {
+            orig(self);
+            if (loadoutSectionHolder == null)
+            {
+                loadoutSectionHolder = new GameObject("SectionHolder");
+                Transform transform = loadoutSectionHolder.transform;
+                loadoutSectionHolder.transform.SetParent(self.transform);
+                transform.localScale = Vector3.one;
+                transform.localRotation = Quaternion.identity;
+                transform.localPosition = Vector3.zero;
+                RectTransform rectTransform = loadoutSectionHolder.AddComponent<RectTransform>();
+                CanvasRenderer canvasRenderer = loadoutSectionHolder.AddComponent<CanvasRenderer>();
+                canvasRenderer.cullTransparentMesh = false;
+                HorizontalLayoutGroup horizontalLayoutGroup = loadoutSectionHolder.AddComponent<HorizontalLayoutGroup>();
+                RectOffset rectOffset = horizontalLayoutGroup.padding;
+                rectOffset.right = 6;
+                rectOffset.left = 6;
+                rectOffset.top = 6;
+                rectOffset.bottom = 6;
+                horizontalLayoutGroup.childControlHeight = true;
+                horizontalLayoutGroup.childControlWidth = true;
+                LayoutElement layoutElement = loadoutSectionHolder.AddComponent<LayoutElement>();
+                layoutElement.minHeight = 32;
+                layoutElement.preferredHeight = 48;
+            }
+
+        }
+        private bool BulletAttack_ProcessHit(On.RoR2.BulletAttack.orig_ProcessHit orig, BulletAttack self, ref BulletAttack.BulletHit hitInfo)
+        {
+            if (hitInfo != null && hitInfo.hitHurtBox && hitInfo.hitHurtBox.healthComponent && self.GetIgnoreHitTargets())
+            {
+                List<object> targets = self.GetIgnoredHealthComponents();
+                if (targets == null)
+                {
+                    self.SetIgnoredHealthComponents(new List<object>());
+                    targets = self.GetIgnoredHealthComponents();
+                }
+                if (targets.Contains(hitInfo.hitHurtBox.healthComponent))
+                {
+                    return false;
+                }
+                else
+                {
+                    targets.Add(hitInfo.hitHurtBox.healthComponent);
+                }
+            }
+            return orig(self, ref hitInfo);
+        }
+        private void CharacterSelectController_OnEnable(On.RoR2.UI.CharacterSelectController.orig_OnEnable orig, RoR2.UI.CharacterSelectController self)
+        {
+            orig(self);
+            SetConfigValues();
+        }
+        private void GenericSkill_Awake(ILContext il)
+        {
+            ILCursor c = new ILCursor(il);
+            ILLabel iLLabel = null;
+            if (c.TryGotoNext(
+                    x => x.MatchLdarg(0),
+                    x => x.MatchLdarg(0),
+                    x => x.MatchCall<GenericSkill>("get_skillFamily"),
+                    x => x.MatchCallvirt<SkillFamily>("get_defaultSkillDef"),
+                    x => x.MatchCall<GenericSkill>("set_defaultSkillDef")
+                ))
+            {
+                c.RemoveRange(5);
+                c.Emit(OpCodes.Ldarg_0);
+                //c.Emit<GenericSkill>(OpCodes.Call, "get_skillFamily");
+                c.EmitDelegate<Action<GenericSkill>>((cb) =>
+                {
+                    cb.defaultSkillDef = cb.skillFamily ? cb.skillFamily.defaultSkillDef : null;
+
+                });
+                //c.Emit(OpCodes.Brtrue_S, iLLabel);
+            }
+            else
+            {
+                Debug.LogError(il.Method.Name + " IL Hook failed!");
+            }
+        }
+
+        private void GenericCharacterMain_HandleMovements(On.EntityStates.GenericCharacterMain.orig_HandleMovements orig, EntityStates.GenericCharacterMain self)
+        {
+            if (self.characterBody && self.characterBody.HasModdedBodyFlag(Assets.SprintAllTime))
+                self.sprintInputReceived = true;
+            orig(self);
+        }
+
+        private void CameraModePlayerBasic_CollectLookInputInternal(ILContext il)
+        {
+            ILCursor c = new ILCursor(il);
+            ILLabel iLLabel = null;
+            if (c.TryGotoNext(
+                    x => x.MatchLdsfld<CameraRigController>(nameof(CameraRigController.enableSprintSensitivitySlowdown)),
+                    x => x.MatchCallvirt<BoolConVar>("get_value"),
+                    x => x.MatchBrfalse(out iLLabel)
+                ))
+            {
+                c.Emit(OpCodes.Ldarg_2);
+                c.Emit<CameraModeBase.CameraModeContext>(OpCodes.Ldflda, nameof(CameraModeBase.CameraModeContext.targetInfo));
+                c.Emit<CameraModeBase.TargetInfo>(OpCodes.Ldfld, nameof(CameraModeBase.TargetInfo.body));
+                c.EmitDelegate<Func<CharacterBody, bool>>((cb) =>
+                {
+                    return cb ? cb.HasModdedBodyFlag(Assets.SprintAllTime) : false;
+
+                });
+                c.Emit(OpCodes.Brtrue_S, iLLabel);
+            }
+            else
+            {
+                Debug.LogError(il.Method.Name + " IL Hook failed!");
+            }
+        }
+
+        private static void SkillDef_OnExecute(ILContext il)
+        {
+            ILCursor c = new ILCursor(il);
+            ILLabel iLLabel = null;
+            if (c.TryGotoNext(
+                    x => x.MatchLdarg(0),
+                    x => x.MatchLdfld<SkillDef>("cancelSprintingOnActivation"),
+                    x => x.MatchBrfalse(out iLLabel)
+                ))
+            {
+                c.Emit(OpCodes.Ldarg_1);
+                c.EmitDelegate<Func<GenericSkill, bool>>((cb) =>
+                {
+                    return cb.characterBody.HasModdedBodyFlag(Assets.SprintAllTime);
+
+                });
+                c.Emit(OpCodes.Brtrue_S, iLLabel);
+            }
+            else
+            {
+                Debug.LogError(il.Method.Name + " IL Hook failed!");
+            }
+        }
+
+        private static void SkillDef_OnFixedUpdate(MonoMod.Cil.ILContext il)
+        {
+            ILCursor c = new ILCursor(il);
+            ILLabel iLLabel = null;
+            if (c.TryGotoNext(
+                    x => x.MatchLdarg(1),
+                    x => x.MatchCallvirt<GenericSkill>("get_characterBody"),
+                    x => x.MatchCallvirt<CharacterBody>("get_isSprinting"),
+                    x => x.MatchBrfalse(out iLLabel)
+                ))
+            {
+                c.Emit(OpCodes.Ldarg_1);
+                c.EmitDelegate<Func<GenericSkill, bool>>((cb) =>
+                {
+                    return cb.characterBody.HasModdedBodyFlag(Assets.SprintAllTime);
+
+                });
+                c.Emit(OpCodes.Brtrue_S, iLLabel);
+            }
+            else
+            {
+                Debug.LogError(il.Method.Name + " IL Hook failed!");
+            }
+        }
+        private static void CameraModePlayerBasic_UpdateInternal(ILContext il)
+        {
+            ILCursor c = new ILCursor(il);
+            ILLabel iLLabel = null;
+            if (
+                c.TryGotoNext(
+                    x => x.MatchLdarg(2),
+                    x => x.MatchLdflda<CameraModeBase.CameraModeContext>("targetInfo"),
+                    x => x.MatchLdfld<CameraModeBase.TargetInfo>("isSprinting"),
+                    x => x.MatchBrfalse(out iLLabel)
+                ))
+            {
+                //Debug.Log(c);
+                //Debug.Log(iLLabel?.Target);
+                c.Emit(OpCodes.Ldarg_2);
+                c.EmitDelegate(sus);
+                bool sus(ref CameraModeBase.CameraModeContext cameraModeContext)
+                {
+                    if (cameraModeContext.targetInfo.body != null)
+                    {
+                        return cameraModeContext.targetInfo.body.HasModdedBodyFlag(Assets.SprintAllTime);
+                    }
+                    else
+                    {
+                        return true;
+                    }
+
+                }
+                c.Emit(OpCodes.Brtrue_S, iLLabel);
+            }
+            else
+            {
+                Debug.LogError(il.Method.Name + " IL Hook failed!");
+            }
+        }
+        private static void CrosshairManager_UpdateCrosshair1(ILContext il)
+        {
+            ILCursor c = new ILCursor(il);
+            ILLabel iLLabel = null;
+            ILLabel iLLabel2 = null;
+            if (
+                c.TryGotoNext(
+                    x => x.MatchLdarg(0),
+                    x => x.MatchLdfld<CrosshairManager>("cameraRigController"),
+                    x => x.MatchCallvirt<CameraRigController>("get_hasOverride"),
+                    x => x.MatchBrtrue(out iLLabel)
+                )
+                &&
+                c.TryGotoNext(
+                    x => x.MatchLdarg(1),
+                    x => x.MatchCallvirt<CharacterBody>("get_isSprinting"),
+                    x => x.MatchBrtrue(out iLLabel2)
+                ))
+            {
+                c.Emit(OpCodes.Ldarg_1);
+                c.EmitDelegate<Func<CharacterBody, bool>>((cb) =>
+                {
+                    return cb.HasModdedBodyFlag(Assets.SprintAllTime);
+                });
+                c.Emit(OpCodes.Brtrue_S, iLLabel);
+            }
+            else
+            {
+                Debug.LogError(il.Method.Name + " IL Hook failed!");
+            }
+        }
+        private void CameraRigController_SetCameraState1(On.RoR2.CameraRigController.orig_SetCameraState orig, CameraRigController self, CameraState cameraState)
+        {
+            orig(self, cameraState);
+            if (worldCrosshairPositionOverride == Vector3.zero) return;
+            self.transform.rotation = Quaternion.LookRotation(worldCrosshairPositionOverride - self.transform.position);
+        }
+
+        private void CameraRigController_SetCameraState(ILContext il)
+        {
+            ILCursor c = new ILCursor(il);
+            Instruction instruction = null;
+            if (c.TryGotoNext(MoveType.Before,
+                    //x => x.MatchLdloc(5),
+                    x => x.MatchLdfld<CameraState>(nameof(CameraState.rotation))
+                    //x => x.MatchCall<CameraRigController>("set_crosshairWorldPosition")
+                ))
+            {
+                c.Remove();
+                c.EmitDelegate(SetOverrideWorldCrosshairPosition);
+                Quaternion SetOverrideWorldCrosshairPosition(ref CameraState cameraState)
+                {
+                    return worldCrosshairPositionOverride == Vector3.zero ? cameraState.rotation : Quaternion.LookRotation(worldCrosshairPositionOverride - cameraState.position);
+                }
+            }
+            else
+            {
+                Debug.LogError(il.Method.Name + " IL Hook failed!");
+            }
+        }
+
+        private void CameraRigController_LateUpdate(ILContext il)
+        {
+            ILCursor c = new ILCursor(il);
+            Instruction instruction = null;
+            if (c.TryGotoNext(MoveType.After,
+                    x => x.MatchLdloc(5),
+                    x => x.MatchLdfld<CameraModeBase.UpdateResult>(nameof(CameraModeBase.UpdateResult.crosshairWorldPosition)),
+                    x => x.MatchCall<CameraRigController>("set_crosshairWorldPosition")
+                ))
+            {
+                c.Emit(OpCodes.Ldarg_0);
+                c.EmitDelegate(SetOverrideWorldCrosshairPosition);
+                void SetOverrideWorldCrosshairPosition(CameraRigController cameraRigController)
+                {
+                    if (worldCrosshairPositionOverride == Vector3.zero) return;
+                    cameraRigController.crosshairWorldPosition = worldCrosshairPositionOverride;
+                }
+                //instruction = c.Next.Next.Next;
+                //c.EmitDelegate(HasOverrideWorldCrosshairPosition);
+                //bool HasOverrideWorldCrosshairPosition()
+                //{
+                //    return worldCrosshairPositionOverride == Vector3.zero ? false : true;
+                //}
+                //c.EmitDelegate(ReturnOverrideWorldCrosshairPosition);
+                //Vector3 ReturnOverrideWorldCrosshairPosition(ref CameraModeBase.UpdateResult updateResult)
+                //{
+                //    return worldCrosshairPositionOverride;
+                //}
+                //c.Emit(OpCodes.Brtrue_S, instruction);
+                //c.Emit(OpCodes.Pop);
+            }
+            else
+            {
+                Debug.LogError(il.Method.Name + " IL Hook failed!");
+            }
+        }
+
+        private void CameraModePlayerBasic_UpdateCrosshair(ILContext il)
+        {
+            ILCursor c = new ILCursor(il);
+            Instruction instruction = null;
+            if (c.TryGotoNext(MoveType.After,
+                    x => x.MatchLdcI4(-1),
+                    x => x.MatchStloc(7)
+                ))
+            {
+                instruction = c.Next;
+                c.EmitDelegate(HasWorldCrosshairOverride);
+                bool HasWorldCrosshairOverride()
+                {
+                    return worldCrosshairPositionOverride == Vector3.zero ? false : true;
+                }
+                c.Emit(OpCodes.Brfalse_S, instruction);
+                c.Emit(OpCodes.Ldloc, 5);
+                c.EmitDelegate(ReturnResults);
+                void ReturnResults(RaycastHit[] raycastHits)
+                {
+                    HGPhysics.ReturnResults(raycastHits);
+                }
+                c.Emit(OpCodes.Ldarg, 5);
+                c.EmitDelegate(GetWorldCrosshairOverride);
+                Vector3 GetWorldCrosshairOverride()
+                {
+                    return worldCrosshairPositionOverride;
+                }
+                c.Emit(OpCodes.Stobj, typeof(Vector3));
+                c.Emit(OpCodes.Ret);
+            }
+            else
+            {
+                Debug.LogError(il.Method.Name + " IL Hook failed!");
+            }
+        }
+
+        /*
+private void GenericSkill_SetBonusStockFromBody(ILContext il)
+{
+   ILCursor c = new ILCursor(il);
+   Instruction instruction = null;
+   if (c.TryGotoNext(
+           x => x.MatchLdarg(1)
+           //x => x.MatchStfld<GenericSkill>(nameof(GenericSkill.bonusStockFromBody))
+       ))
+   {
+       c.Remove();
+       c.EmitDelegate();
+       int SetBonusStock();
+       //instruction = c.Next.Next;
+       //c.EmitDelegate(HasSkillOverride);
+       //int HasSkillOverride(GenericSkill genericSkill)
+       //{
+       //    GenericSkill linkedSKill = genericSkill.GetLinkedSkill();
+       //    return linkedSKill ? linkedSKill.bonusStockFromBody : -1;
+       //}
+       //c.Emit(OpCodes.Ldc_I4, 0);
+       //c.Emit(OpCodes.Blt_Un_S, instruction);
+   }
+   else
+   {
+       Debug.LogError(il.Method.Name + " IL Hook failed!");
+   }
+}*/
+        /// <summary>
+        /// A collection of modifiers for various stats. It will be passed down the event chain of GetStatCoefficients; add to the contained values to modify stats.
+        /// </summary>
+        public class ExtraStatHookEventArgs : EventArgs
+        {
+            #region wallJump
+            /// <summary>Added to wall jump.</summary> <remarks>WALL_JUMP ~ (BASE_WALL_JUMP + wallJumpAdd) * wallJumpMult</remarks>
+            public int wallJumpAdd = 0;
+            /// <summary>Wall jump is multiplied by this number. Multiply this value by your multiplier.</summary> <inheritdoc cref="wallJumpAdd"/>
+            public float wallJumpMult = 1f;
+            #endregion
+        }
+
+        /// <summary>
+        /// Used as the delegate type for the GetStatCoefficients event.
+        /// </summary>
+        /// <param name="sender">The CharacterBody which RecalculateStats is being called for.</param>
+        /// <param name="args">An instance of StatHookEventArgs, passed to each subscriber to this event in turn for modification.</param>
+        public delegate void ExtraStatHookEventHandler(CharacterBody sender, ExtraStatHookEventArgs args);
+
+        private static event ExtraStatHookEventHandler _getExtraStatCoefficients;
+
+        /// <summary>
+        /// Subscribe to this event to modify one of the stat hooks which StatHookEventArgs covers. Fired during CharacterBody.RecalculateStats.
+        /// </summary>
+        public static event ExtraStatHookEventHandler GetExtraStatCoefficients
+        {
+            add
+            {
+                _getExtraStatCoefficients += value;
+            }
+
+            remove
+            {
+                _getExtraStatCoefficients -= value;
+            }
+        }
+
+        private static ExtraStatHookEventArgs ExtraStatMods;
+        private void CharacterBody_RecalculateStats(ILContext il)
+        {
+            ILCursor c = new ILCursor(il);
+            c.Emit(OpCodes.Ldarg_0);
+            c.EmitDelegate(ExtraStats);
+            void ExtraStats(CharacterBody characterBody)
+            {
+                characterBody.SetMaxWallJumpCount(characterBody.GetBaseWallJumpCount());
+                ExtraStatHookEventArgs extraStatHookEventArgs = new ExtraStatHookEventArgs();
+                if (_getExtraStatCoefficients != null)
+                {
+                    foreach (ExtraStatHookEventHandler @event in _getExtraStatCoefficients.GetInvocationList())
+                    {
+                        try
+                        {
+                            @event(characterBody, extraStatHookEventArgs);
+                        }
+                        catch (Exception e)
+                        {
+                        }
+                    }
+                }
+            }
+            c = new ILCursor(il);
+            if (c.TryGotoNext(
+                    x => x.MatchLdarg(0),
+                    x => x.MatchLdcR4(0),
+                    x => x.MatchCall<CharacterBody>("set_critHeal")
+                ))
+            {
+                c.Emit(OpCodes.Ldarg_0);
+                c.EmitDelegate(HasSkillOverride);
+                void HasSkillOverride(CharacterBody characterBody)
+                {
+                    if (characterBody.skillLocator)
+                    {
+                        for (int i = 0; i < characterBody.skillLocator.allSkills.Length; i++)
+                        {
+                            GenericSkill genericSkill = characterBody.skillLocator.allSkills[i];
+                            if (genericSkill == null) continue;
+                            GenericSkill linkedSkill = genericSkill.GetLinkedSkill();
+                            if (linkedSkill == null) continue;
+                            genericSkill.cooldownScale = linkedSkill.cooldownScale;
+                            genericSkill.finalRechargeInterval = linkedSkill.finalRechargeInterval;
+                            genericSkill.SetBonusStockFromBody(linkedSkill.bonusStockFromBody);
+                        }
+                    }
+                }
+            }
+            else
+            {
+                Debug.LogError(il.Method.Name + " IL Hook failed!");
+            }
+        }
+
+        private void CharacterMotor_OnLanded(ILContext il)
+        {
+            ILCursor c = new ILCursor(il);
+            if (
+                c.TryGotoNext(MoveType.After,
+                x => x.MatchLdarg(0),
+                x => x.MatchLdcI4(0),
+                x => x.MatchStfld<CharacterMotor>(nameof(CharacterMotor.jumpCount))
+                ))
+            {
+                c.Emit(OpCodes.Ldarg_0);
+                c.EmitDelegate(SetWallJumpCount);
+                void SetWallJumpCount(CharacterMotor characterMotor)
+                {
+                    characterMotor.SetWallJumpCount(0);
+                }
+            }
+            else
+            {
+                Debug.LogError(il.Method.Name + " IL Hook failed!");
+            }
+        }
+        private void GenericCharacterMain_ProcessJump_bool(ILContext il)
+        {
+            ILCursor c = new ILCursor(il);
+            Instruction instruction = null;
+            Instruction instruction2 = null;
+            Instruction instruction3 = null;
+            Instruction instruction4 = null;
+            ILLabel iLLabel = null;
+            int newLocal = il.Body.Variables.Count;
+            il.Body.Variables.Add(new(il.Import(typeof(bool))));
+            if (
+                c.TryGotoNext(MoveType.After,
+                x => x.MatchLdarg(0),
+                x => x.MatchLdfld<BaseCharacterMain>(nameof(BaseCharacterMain.hasCharacterMotor)),
+                x => x.MatchBrfalse(out var num)
+                ))
+            {
+                c.Emit(OpCodes.Ldc_I4_0);
+                c.Emit(OpCodes.Stloc, newLocal);
+                c = new ILCursor(il);
+                if (c.TryGotoNext(
+                        x => x.MatchLdarg(0),
+                        x => x.MatchCall<EntityStates.EntityState>("get_characterMotor"),
+                        x => x.MatchLdfld<CharacterMotor>(nameof(CharacterMotor.jumpCount)),
+                        x => x.MatchLdarg(0),
+                        x => x.MatchCall<EntityStates.EntityState>("get_characterBody"),
+                        x => x.MatchCallvirt<CharacterBody>("get_maxJumpCount"),
+                        x => x.MatchClt(),
+                        x => x.MatchBr(out iLLabel)
+                    ))
+                {
+                    instruction = c.Next;
+                    c.GotoLabel(iLLabel);
+                    instruction2 = c.Prev;
+                    c.Goto(instruction);
+                    c.Emit(OpCodes.Ldarg_0);
+                    c.EmitDelegate(WallJump);
+                    bool WallJump(EntityState entityState)
+                    {
+                        CharacterMotor characterMotor = entityState.characterMotor;
+                        KinematicCharacterMotor kinematicCharacterMotor = characterMotor.Motor;
+                        if (kinematicCharacterMotor && !entityState.characterMotor.isGrounded && characterMotor.GetWallJumpCount() < entityState.characterBody.GetMaxWallJumpCount() && kinematicCharacterMotor.CharacterCollisionsOverlap(kinematicCharacterMotor.TransientPosition, kinematicCharacterMotor.TransientRotation, kinematicCharacterMotor._internalProbedColliders, 0.1f) > 0) return true;
+                        return false;
+                    }
+                    instruction3 = c.Emit(OpCodes.Brtrue_S, instruction2).Prev;
+                    c.Index--;
+                    c.Emit(OpCodes.Dup);
+                    c.Emit(OpCodes.Brfalse_S, instruction3);
+                    c.Emit(OpCodes.Ldc_I4_1);
+                    c.Emit(OpCodes.Stloc, newLocal);
+                    c = new ILCursor(il);
+                    if (
+                        c.TryGotoNext(MoveType.After,
+                        x => x.MatchLdarg(0),
+                        x => x.MatchCall<EntityStates.EntityState>("get_characterMotor"),
+                        x => x.MatchDup(),
+                        x => x.MatchLdfld<CharacterMotor>(nameof(CharacterMotor.jumpCount)),
+                        x => x.MatchLdcI4(1),
+                        x => x.MatchAdd(),
+                        x => x.MatchStfld<CharacterMotor>(nameof(CharacterMotor.jumpCount))
+                        ))
+                    {
+                        //instruction4 = c.Next;
+                        //c.Index -= 8;
+                        c.Emit(OpCodes.Ldarg_0);
+                        c.Emit(OpCodes.Ldloc, newLocal);
+                        c.EmitDelegate(CountWallJump);
+                        void CountWallJump(EntityState entityState, bool isWallJump)
+                        {
+                            if (isWallJump)
+                            {
+                                CharacterMotor characterMotor = entityState.characterMotor;
+                                characterMotor.SetWallJumpCount(characterMotor.GetWallJumpCount() + 1);
+                                characterMotor.jumpCount--;
+                            }
+                        }
+                        //c.Emit(OpCodes.Ldloc, newLocal);
+                        //c.Emit(OpCodes.Brtrue_S, instruction4);
+                    }
+                    else
+                    {
+                        Debug.LogError(il.Method.Name + " IL Hook 3 failed!");
+                    }
+                }
+                else
+                {
+                    Debug.LogError(il.Method.Name + " IL Hook 2 failed!");
+                }
+            }
+            else
+            {
+                Debug.LogError(il.Method.Name + " IL Hook 1 failed!");
+            }
+            
+        }
+
+        private void HealthComponent_TakeDamageProcess(ILContext il)
+        {
+            ILCursor c = new ILCursor(il);
+            ILLabel iLLabel = null;
+            int thatStructId = 0;
+            Mono.Cecil.FieldReference damageInfoField = null;
+            Mono.Cecil.FieldReference attackerBodyField = null;
+            int i = 6;
+            if (c.TryGotoNext(MoveType.Before,
+                    x => x.MatchLdloca(out var num),
+                    x => x.MatchLdloc(out thatStructId),
+                    x => x.MatchLdfld(out damageInfoField),
+                    x => x.MatchLdfld<DamageInfo>(nameof(DamageInfo.attacker)),
+                    x => x.MatchCallvirt<GameObject>(nameof(GameObject.GetComponent)),
+                    x => x.MatchStfld(out attackerBodyField)
+                ))
+            {
+                if (c.TryGotoNext(MoveType.Before,
+                    x => x.MatchLdloc(7),
+                    x => x.MatchStloc(8)
+                ))
+                {
+                    c.Index++;
+                    c.Emit(OpCodes.Ldloc, thatStructId);
+                    c.Emit(OpCodes.Ldfld, damageInfoField);
+                    c.Emit(OpCodes.Ldarg_0);
+                    c.EmitDelegate(CheckForAnyFlags);
+                    bool CheckForAnyFlags(DamageInfo damageInfo, HealthComponent healthComponent)
+                    {
+                        CharacterBody characterBody = healthComponent.body;
+                        if(characterBody == null) return false;
+                        bool isChampion = characterBody.isChampion;
+                        return isChampion ? (damageInfo.HasModdedDamageType(InstakillChampion) || damageInfo.HasModdedDamageType(BruiseChampion)) : (damageInfo.HasModdedDamageType(InstakillNoChampion) || damageInfo.HasModdedDamageType(BruiseNoChampion));
+                    }
+                    c.Emit(OpCodes.Brfalse_S, c.Next);
+                    c.Emit(OpCodes.Pop);
+                    c.Emit(OpCodes.Ldloc, thatStructId);
+                    c.Emit(OpCodes.Ldfld, damageInfoField);
+                    c.Emit(OpCodes.Ldarg_0);
+                    c.EmitDelegate(ReplaceDamageNumber);
+                    float ReplaceDamageNumber(DamageInfo damageInfo, HealthComponent healthComponent)
+                    {
+                        float num = (damageInfo.HasModdedDamageType(InstakillNoChampion) || damageInfo.HasModdedDamageType(InstakillChampion)) ? healthComponent.fullCombinedHealth : healthComponent.fullCombinedHealth / 4f;
+                        return num;
+                    }
+                }
+                else
+                {
+                    Debug.LogError(il.Method.Name + " IL Hook 2 failed!");
+                }
+            }
+            else
+            {
+                Debug.LogError(il.Method.Name + " IL Hook 1 failed!");
+            }        }
+
+        private bool GenericSkill_CanApplyAmmoPack(On.RoR2.GenericSkill.orig_CanApplyAmmoPack orig, GenericSkill self)
+        {
+            if(self.skillDef)
+            self.skillDef.CanApplyAmmoPack();
+            return orig(self);
+        }
+
+        internal static void OnSniperHurtboxAdded(GameObject sniperHurtboxTracker)
+        {
+            onSniperHurtboxAdded?.Invoke(sniperHurtboxTracker);
+        }
+        internal static void OnSniperHurtboxRemoved(GameObject sniperHurtboxTracker)
+        {
+            onSniperHurtboxRemoved?.Invoke(sniperHurtboxTracker);
+        }
+        private void HurtBox_OnDisable(On.RoR2.HurtBox.orig_OnDisable orig, HurtBox self)
+        {
+            orig(self);
+            Transform transform = self.transform.Find("SniperHurtboxTrackerObject");
+            if (transform) Destroy(transform.gameObject);
+        }
+
+        private void HurtBox_OnEnable(On.RoR2.HurtBox.orig_OnEnable orig, HurtBox self)
+        {
+            orig(self);
+            if (!self.isSniperTarget) return;
+            GameObject gameObject = new GameObject("SniperHurtboxTrackerObject");
+            SniperHurtboxTracker sniperHurtboxTracker = gameObject.AddComponent<SniperHurtboxTracker>();
+            sniperHurtboxTracker.hurtBox = self;
+            sniperHurtboxTracker.transform.SetParent(self.transform, false);
         }
 
         private void FogDamageController_MyFixedUpdate(ILContext il)
@@ -204,12 +1124,6 @@ namespace BrynzaAPI
         private void ContentManager_collectContentPackProviders(ContentManager.AddContentPackProviderDelegate addContentPackProvider)
         {
             addContentPackProvider.Invoke(new ContentPacks());
-        }
-
-        private void CharacterMotor_OnLanded(On.RoR2.CharacterMotor.orig_OnLanded orig, CharacterMotor self)
-        {
-            orig(self);
-            self.body.SetBuffCount(StrafeBuff.buffIndex, 0);
         }
         /*
 private void BulletAttack_Fire(ILContext il)
@@ -460,11 +1374,14 @@ private void BulletAttack_Fire(ILContext il)
         private void GenericSkill_CalculateFinalRechargeInterval(ILContext il)
         {
             ILCursor c = new ILCursor(il);
-            ILLabel iLLabel = null;
+            //Instruction instruction = null;
+            //Instruction instruction2 = null;
             if (c.TryGotoNext(
                     x => x.MatchCall<GenericSkill>("get_cooldownScale")
                 ))
             {
+                //instruction = c.Next;
+                //instruction2 = c.Next.Next;
                 c.Remove();
                 c.EmitDelegate<Func<GenericSkill, float>>((cb) =>
                 {
@@ -532,6 +1449,7 @@ private void BulletAttack_Fire(ILContext il)
             }
         }
 
+
         private void GenericSkill_RecalculateMaxStock1(ILContext il)
         {
             ILCursor c = new ILCursor(il);
@@ -573,224 +1491,13 @@ private void BulletAttack_Fire(ILContext il)
                 skill.RecalculateMaxStock();
             }
         }
-
-        private void UnsetHooks()
-        {
-            if (!hooksEnabled) return;
-            hooksEnabled = false;
-            IL.RoR2.Skills.SkillDef.OnFixedUpdate -= SkillDef_OnFixedUpdate;
-            IL.RoR2.Skills.SkillDef.OnExecute -= SkillDef_OnExecute;
-            IL.RoR2.UI.CrosshairManager.UpdateCrosshair -= CrosshairManager_UpdateCrosshair1;
-            IL.RoR2.CameraModes.CameraModePlayerBasic.UpdateInternal -= CameraModePlayerBasic_UpdateInternal;
-            IL.RoR2.CameraModes.CameraModePlayerBasic.CollectLookInputInternal -= CameraModePlayerBasic_CollectLookInputInternal;
-            On.EntityStates.GenericCharacterMain.HandleMovements += GenericCharacterMain_HandleMovements;
-            IL.RoR2.GenericSkill.Awake -= GenericSkill_Awake;
-            On.RoR2.CharacterBody.RecalculateStats -= CharacterBody_RecalculateStats1;
-            //On.RoR2.GenericSkill.RecalculateMaxStock += GenericSkill_RecalculateMaxStock;
-            //On.RoR2.GenericSkill.CalculateFinalRechargeInterval += GenericSkill_CalculateFinalRechargeInterval1;
-            //IL.RoR2.GenericSkill.RecalculateMaxStock += GenericSkill_RecalculateMaxStock1;
-            //IL.RoR2.GenericSkill.CalculateFinalRechargeInterval += GenericSkill_CalculateFinalRechargeInterval;
-            IL.RoR2.CharacterMotor.PreMove -= CharacterMotor_PreMove;
-            IL.RoR2.Projectile.ProjectileExplosion.DetonateServer -= ProjectileExplosion_DetonateServer;
-            IL.EntityStates.GenericCharacterMain.ApplyJumpVelocity -= GenericCharacterMain_ApplyJumpVelocity;
-            //IL.RoR2.BulletAttack.Fire += BulletAttack_Fire;
-            On.RoR2.GlobalEventManager.OnCharacterHitGroundServer -= GlobalEventManager_OnCharacterHitGroundServer;
-            ContentManager.collectContentPackProviders -= ContentManager_collectContentPackProviders;
-            On.RoR2.Run.Start -= Run_Start;
-            On.RoR2.RoR2Application.OnLoad -= RoR2Application_OnLoad;
-            On.RoR2.UI.CharacterSelectController.OnEnable -= CharacterSelectController_OnEnable;
-            On.RoR2.CharacterMotor.OnDisable -= CharacterMotor_OnDisable;
-            IL.RoR2.FogDamageController.MyFixedUpdate -= FogDamageController_MyFixedUpdate;
-        }
-        private bool hooksEnabled = false;
-        private void GenericSkill_Awake(ILContext il)
-        {
-            ILCursor c = new ILCursor(il);
-            ILLabel iLLabel = null;
-            if (c.TryGotoNext(
-                    x => x.MatchLdarg(0),
-                    x => x.MatchLdarg(0),
-                    x => x.MatchCall<GenericSkill>("get_skillFamily"),
-                    x => x.MatchCallvirt<SkillFamily>("get_defaultSkillDef"),
-                    x => x.MatchCall<GenericSkill>("set_defaultSkillDef")
-                ))
-            {
-                c.RemoveRange(5);
-                c.Emit(OpCodes.Ldarg_0);
-                //c.Emit<GenericSkill>(OpCodes.Call, "get_skillFamily");
-                c.EmitDelegate<Action<GenericSkill>>((cb) =>
-                {
-                    cb.defaultSkillDef = cb.skillFamily ? cb.skillFamily.defaultSkillDef : null;
-
-                });
-                //c.Emit(OpCodes.Brtrue_S, iLLabel);
-            }
-            else
-            {
-                Debug.LogError(il.Method.Name + " IL Hook failed!");
-            }
-        }
-        
-        private void GenericCharacterMain_HandleMovements(On.EntityStates.GenericCharacterMain.orig_HandleMovements orig, EntityStates.GenericCharacterMain self)
-        {
-            if(self.characterBody && self.characterBody.HasModdedBodyFlag(Assets.SprintAllTime))
-            self.sprintInputReceived = true;
-            orig(self);
-        }
-
-        private void CameraModePlayerBasic_CollectLookInputInternal(ILContext il)
-        {
-            ILCursor c = new ILCursor(il);
-            ILLabel iLLabel = null;
-            if (c.TryGotoNext(
-                    x => x.MatchLdsfld<CameraRigController>(nameof(CameraRigController.enableSprintSensitivitySlowdown)),
-                    x => x.MatchCallvirt<BoolConVar>("get_value"),
-                    x => x.MatchBrfalse(out iLLabel)
-                ))
-            {
-                c.Emit(OpCodes.Ldarg_2);
-                c.Emit<CameraModeBase.CameraModeContext>(OpCodes.Ldflda, nameof(CameraModeBase.CameraModeContext.targetInfo));
-                c.Emit<CameraModeBase.TargetInfo>(OpCodes.Ldfld, nameof(CameraModeBase.TargetInfo.body));
-                c.EmitDelegate<Func<CharacterBody, bool>>((cb) =>
-                {
-                    return cb ? cb.HasModdedBodyFlag(Assets.SprintAllTime) : false;
-
-                });
-                c.Emit(OpCodes.Brtrue_S, iLLabel);
-            }
-            else
-            {
-                Debug.LogError(il.Method.Name + " IL Hook failed!");
-            }
-        }
-
-        private static void SkillDef_OnExecute(ILContext il)
-        {
-            ILCursor c = new ILCursor(il);
-            ILLabel iLLabel = null;
-            if (c.TryGotoNext(
-                    x => x.MatchLdarg(0),
-                    x => x.MatchLdfld<SkillDef>("cancelSprintingOnActivation"),
-                    x => x.MatchBrfalse(out iLLabel)
-                ))
-            {
-                c.Emit(OpCodes.Ldarg_1);
-                c.EmitDelegate<Func<GenericSkill, bool>>((cb) =>
-                {
-                    return cb.characterBody.HasModdedBodyFlag(Assets.SprintAllTime);
-
-                });
-                c.Emit(OpCodes.Brtrue_S, iLLabel);
-            }
-            else
-            {
-                Debug.LogError(il.Method.Name + " IL Hook failed!");
-            }
-        }
-
-        private static void SkillDef_OnFixedUpdate(MonoMod.Cil.ILContext il)
-        {
-            ILCursor c = new ILCursor(il);
-            ILLabel iLLabel = null;
-            if (c.TryGotoNext(
-                    x => x.MatchLdarg(1),
-                    x => x.MatchCallvirt<GenericSkill>("get_characterBody"),
-                    x => x.MatchCallvirt<CharacterBody>("get_isSprinting"),
-                    x => x.MatchBrfalse(out iLLabel)
-                ))
-            {
-                c.Emit(OpCodes.Ldarg_1);
-                c.EmitDelegate<Func<GenericSkill, bool>>((cb) =>
-                {
-                    return cb.characterBody.HasModdedBodyFlag(Assets.SprintAllTime);
-
-                });
-                c.Emit(OpCodes.Brtrue_S, iLLabel);
-            }
-            else
-            {
-                Debug.LogError(il.Method.Name + " IL Hook failed!");
-            }
-        }
-        private static void CameraModePlayerBasic_UpdateInternal(ILContext il)
-        {
-            ILCursor c = new ILCursor(il);
-            ILLabel iLLabel = null;
-            if (
-                c.TryGotoNext(
-                    x => x.MatchLdarg(2),
-                    x => x.MatchLdflda<CameraModeBase.CameraModeContext>("targetInfo"),
-                    x => x.MatchLdfld<CameraModeBase.TargetInfo>("isSprinting"),
-                    x => x.MatchBrfalse(out iLLabel)
-                ))
-            {
-                //Debug.Log(c);
-                //Debug.Log(iLLabel?.Target);
-                c.Emit(OpCodes.Ldarg_2);
-                c.EmitDelegate(sus);
-                bool sus(ref CameraModeBase.CameraModeContext cameraModeContext)
-                {
-                    if (cameraModeContext.targetInfo.body != null)
-                    {
-                        return cameraModeContext.targetInfo.body.HasModdedBodyFlag(Assets.SprintAllTime);
-                    }
-                    else
-                    {
-                        return true;
-                    }
-
-                }
-                c.Emit(OpCodes.Brtrue_S, iLLabel);
-            }
-            else
-            {
-                Debug.LogError(il.Method.Name + " IL Hook failed!");
-            }
-        }
-        private static void CrosshairManager_UpdateCrosshair1(ILContext il)
-        {
-            ILCursor c = new ILCursor(il);
-            ILLabel iLLabel = null;
-            ILLabel iLLabel2 = null;
-            if (
-                c.TryGotoNext(
-                    x => x.MatchLdarg(0),
-                    x => x.MatchLdfld<CrosshairManager>("cameraRigController"),
-                    x => x.MatchCallvirt<CameraRigController>("get_hasOverride"),
-                    x => x.MatchBrtrue(out iLLabel)
-                )
-                &&
-                c.TryGotoNext(
-                    x => x.MatchLdarg(1),
-                    x => x.MatchCallvirt<CharacterBody>("get_isSprinting"),
-                    x => x.MatchBrtrue(out iLLabel2)
-                ))
-            {
-                c.Emit(OpCodes.Ldarg_1);
-                c.EmitDelegate<Func<CharacterBody, bool>>((cb) =>
-                {
-                    return cb.HasModdedBodyFlag(Assets.SprintAllTime);
-                });
-                c.Emit(OpCodes.Brtrue_S, iLLabel);
-            }
-            else
-            {
-                Debug.LogError(il.Method.Name + " IL Hook failed!");
-            }
-        }
+        #endregion Hooks
         public struct ModMetaData
         {
             public string Guid;
 
             public string Name;
         }
-        private void CharacterSelectController_OnEnable(On.RoR2.UI.CharacterSelectController.orig_OnEnable orig, RoR2.UI.CharacterSelectController self)
-        {
-
-            orig(self);
-            SetConfigValues();
-        }
-
         public delegate void OnConfigApplied(int configId, INetworkConfig networkConfig);
         private System.Collections.IEnumerator RoR2Application_OnLoad(On.RoR2.RoR2Application.orig_OnLoad orig, RoR2Application self)
         {
@@ -835,12 +1542,12 @@ private void BulletAttack_Fire(ILContext il)
         public static NetworkConfig<T> CreateConfig<T>(ConfigFile configFile, string section, string key, T defaultValue, string description, OnConfigApplied onConfigApplied = null, NetworkConfig<bool> enableConfig = null, bool generateRiskOfOptionsOption = true)
         {
             ConfigEntry<T> configEntry = configFile.Bind<T>(section, key, defaultValue, description);
-            return CreateConfig(configEntry, onConfigApplied, enableConfig, generateRiskOfOptionsOption);
+            return CreateConfig(configEntry, onConfigApplied, enableConfig, generateRiskOfOptionsOption, Assembly.GetCallingAssembly());
         }
         /// <summary>
         /// Create NetworkConfig from already existing config. Keep in mind that you still need to use NetworkConfig.
         /// </summary>
-        public static NetworkConfig<T> CreateConfig<T>(ConfigEntry<T> configEntry, OnConfigApplied onConfigApplied = null, NetworkConfig<bool> enableConfig = null, bool generateRiskOfOptionsOption = true)
+        public static NetworkConfig<T> CreateConfig<T>(ConfigEntry<T> configEntry, OnConfigApplied onConfigApplied = null, NetworkConfig<bool> enableConfig = null, bool generateRiskOfOptionsOption = true, Assembly assembly = null)
         {
             NetworkConfig<T> config = new NetworkConfig<T>();
             config.id = networkConfigs.Count;
@@ -849,7 +1556,7 @@ private void BulletAttack_Fire(ILContext il)
             config.configEntry = configEntry;
             config.configEntry.SettingChanged += ConfigEntry_SettingChanged;
             networkConfigs.Add(config);
-            ModMetaData modMetaData = Assembly.GetCallingAssembly().GetModMetaData();
+            ModMetaData modMetaData = assembly == null ? Assembly.GetCallingAssembly().GetModMetaData() : assembly.GetModMetaData();
             if (modConfigs.ContainsKey(modMetaData.Guid))
             {
                 modConfigs[modMetaData.Guid].Add(config);
@@ -902,6 +1609,7 @@ private void BulletAttack_Fire(ILContext il)
             int id { get; set; }
             OnConfigApplied OnConfigApplied { get; set; }
             Type parameterType { get; }
+            object Value {  get; set; }
         }
         public class NetworkConfig<T> : INetworkConfig
         {
@@ -918,11 +1626,19 @@ private void BulletAttack_Fire(ILContext il)
                     {
                         return DefaultValue;
                     }
-                    return configValue;
+                    if (takeServerConfigValues)
+                    {
+                        return configValue;
+                    }
+                    else
+                    {
+                        return configEntry.Value;
+                    }
                 }
                 set
                 {
                     configValue = value;
+                    configEntry.OnSettingChanged(configEntry);
                 }
             }
             public T DefaultValue
@@ -939,7 +1655,6 @@ private void BulletAttack_Fire(ILContext il)
                     return typeof(T);
                 }
             }
-
             public OnConfigApplied OnConfigApplied
             {
                 get
@@ -951,7 +1666,6 @@ private void BulletAttack_Fire(ILContext il)
                     onConfigApplied = value;
                 }
             }
-
             public int id
             {
                 get
@@ -963,6 +1677,7 @@ private void BulletAttack_Fire(ILContext il)
                     configId = value;
                 }
             }
+            object INetworkConfig.Value { get => Value; set => Value = (T)value; }
         }
         /// <summary>
         /// Updates confings using server values.
@@ -1037,6 +1752,7 @@ private void BulletAttack_Fire(ILContext il)
                     networkConfig1.Value = float.Parse(input);
                     if (!NetworkServer.active)
                     {
+                        networkConfig1.configEntry.OnSettingChanged(networkConfig1.configEntry);
                         networkConfig1.configEntry.Value += 1f;
                         networkConfig1.configEntry.Value -= 1f;
                     }
@@ -1062,8 +1778,7 @@ private void BulletAttack_Fire(ILContext il)
                         networkConfig1.configEntry.Value = !networkConfig1.configEntry.Value;
                     }
                 }
-                if (networkConfig.OnConfigApplied != null)
-                    networkConfig.OnConfigApplied(configId, networkConfig);
+                networkConfig.OnConfigApplied?.Invoke(configId, networkConfig);
             }
 
             public void Serialize(NetworkWriter writer)
@@ -1194,11 +1909,84 @@ private void BulletAttack_Fire(ILContext il)
         /// Perpendicullar to horizontal velocity movement will make a sharp turn.
         /// </summary>
         public static BuffDef StrafeBuff = Utils.CreateBuff("bapiStrafing", null, Color.white, false, false, false, true, true);
+        /// <summary>
+        /// Set this damage type to set taked damage to targets max health. Works only on non champion enemies
+        /// </summary>
+        public static DamageAPI.ModdedDamageType InstakillNoChampion = DamageAPI.ReserveDamageType();
+        /// /// <summary>
+        /// Set this damage type to set taked damage to targets max health. Works only on champion enemies
+        /// </summary>
+        public static DamageAPI.ModdedDamageType InstakillChampion = DamageAPI.ReserveDamageType();
+        /// /// <summary>
+        /// Set this damage type to set taked damage to 1/4 of targets max health. Works only on non champion enemies
+        /// </summary>
+        public static DamageAPI.ModdedDamageType BruiseNoChampion = DamageAPI.ReserveDamageType();
+        /// /// <summary>
+        /// Set this damage type to set taked damage to 1/4 of targets max health. Works only on champion enemies
+        /// </summary>
+        public static DamageAPI.ModdedDamageType BruiseChampion = DamageAPI.ReserveDamageType();
         public struct EntityStateMachineAdditionInfo
         {
             public string entityStateMachineName;
             public Type initialStateType;
             public Type mainStateType;
+        }
+    }
+    public class LanguageTokensToAddOnLoad : IDisposable
+    {
+        public static List<LanguageTokensToAddOnLoad> languageTokensToAddOnLoad = new List<LanguageTokensToAddOnLoad>();
+        public string language;
+        public string token;
+        public string output;
+        public LanguageTokensToAddOnLoad(string token, string output, string language)
+        {
+            this.language = language;
+            this.token = token;
+            this.output = output;
+            languageTokensToAddOnLoad.Add(this);
+        }
+        public void Dispose()
+        {
+            languageTokensToAddOnLoad.Remove(this);
+            Utils.AddLanguageToken(token, output, language);
+        }
+    }
+    public class Section : IDisposable
+    {
+        public static List<Section> sections = new List<Section>();
+        public static Dictionary<string, Section> sectionByName = new Dictionary<string, Section>();
+        public string name;
+        public Color color;
+        public HGButton button;
+        public List<LoadoutPanelController.Row> rows = new List<LoadoutPanelController.Row>();
+        public Section(string sectionName, Color color)
+        {
+            name = sectionName;
+            this.color = color;
+            sections.Add(this);
+            sectionByName.Add(name, this);
+            button = GameObject.Instantiate(loadoutSectionButton, loadoutSectionHolder.transform);
+            LanguageTextMeshController languageTextMeshController = button.gameObject.GetComponent<LanguageTextMeshController>();
+            languageTextMeshController.token = name;
+            button.onClick.AddListener(SelectSection);
+            button.requiredTopLayer = null;
+            void SelectSection()
+            {
+                Utils.SelectRowsSection(name);
+            }
+            ColorBlock colorBlock = button.colors;
+            color.a = 0.2f;
+            colorBlock.normalColor = color;
+            colorBlock.highlightedColor = color;
+            color.a = 0.5f;
+            colorBlock.selectedColor = color;
+            button.colors = colorBlock;
+        }
+        public void Dispose()
+        {
+            if (sections.Contains(this)) sections.Remove(this);
+            if (sectionByName.ContainsKey(name)) sectionByName.Remove(name);
+            if (button != null) GameObject.Destroy(button.gameObject);
         }
     }
     /// <summary>
@@ -1291,6 +2079,11 @@ private void BulletAttack_Fire(ILContext il)
         public ProjectileController projectileController;
         public float guidingPower = 15f;
         [HideInInspector] public InputBankTest inputBankTest;
+        public void Awake()
+        {
+            if(rigidbody == null) rigidbody = GetComponent<Rigidbody>();
+            if(projectileController == null) projectileController = GetComponent<ProjectileController>();
+        }
         public void Start()
         {
             inputBankTest = projectileController?.owner.GetComponent<InputBankTest>();
@@ -1306,8 +2099,156 @@ private void BulletAttack_Fire(ILContext il)
             rigidbody.velocity = Vector3.RotateTowards(rigidbody.velocity, vector3, 15f / 57f, 0f);
         }
     }
+    public class SniperHurtboxTracker : MonoBehaviour
+    {
+        [HideInInspector] public HurtBox hurtBox;
+        [HideInInspector] public NetworkUser networkUser;
+        [HideInInspector] public GameObject currentTrackerPrefab;
+        public void Awake()
+        {
+            if (!Run.instance) return;
+            if(NetworkUser.readOnlyInstancesList != null && NetworkUser.readOnlyInstancesList.Count > 0) networkUser = NetworkUser.readOnlyInstancesList[0];
+        }
+        public void OnEnable()
+        {
+            onSniperHurtboxAdded += UpdateTracker;
+            onSniperHurtboxRemoved += UpdateTracker;
+        }
+        public void UpdateTracker(GameObject obj)
+        {
+            if (currentTrackerPrefab) Destroy(currentTrackerPrefab);
+            GameObject sniperHurtboxTrackerDef = null;
+            if(activeSniperHurtboxTrackers.Count > 0)
+            foreach (GameObject sniperHurtboxTrackerDef1 in activeSniperHurtboxTrackers)
+                {
+                    sniperHurtboxTrackerDef = sniperHurtboxTrackerDef1;
+                }
+            if (sniperHurtboxTrackerDef != null)
+            {
+                CameraRigController cameraRigController = networkUser?.cameraRigController;
+                if (cameraRigController != null)
+                {
+                    GameObject mainContainer = cameraRigController.hud.mainContainer;
+                    currentTrackerPrefab = Instantiate(sniperHurtboxTrackerDef, mainContainer.transform);
+                }
+            }
+        }
+        public void Update()
+        {
+            if (hurtBox == null) return;
+            //transform.position = hurtBox.transform.position;
+            if (currentTrackerPrefab == null || networkUser == null) return;
+            CameraRigController cameraRigController = networkUser.cameraRigController;
+            Camera camera = cameraRigController.sceneCam;
+            Camera UIcamera = cameraRigController.uiCam;
+            if (camera == null || UIcamera == null) return;
+            Vector3 worldToViewportPointVector = camera.WorldToViewportPoint(transform.position);
+            Vector3 viewportToScreenPointVector = UIcamera.ViewportToScreenPoint(worldToViewportPointVector);
+            RectTransformUtility.ScreenPointToLocalPointInRectangle(cameraRigController.hud.mainContainer.transform as RectTransform, viewportToScreenPointVector, UIcamera, out Vector2 localPoint);
+            currentTrackerPrefab.transform.localPosition = localPoint;
+        }
+        public void OnDisable()
+        {
+            onSniperHurtboxAdded -= UpdateTracker;
+            onSniperHurtboxRemoved -= UpdateTracker;
+        }
+    }
     public static class Utils
     {
+        public static void AddLanguageToken(string token, string output, string language = "en")
+        {
+            if (RoR2Application.loadFinished)
+            {
+                Language language1 = Language.GetOrCreateLanguage(language);
+                if (language1 == null) return;
+                if (language1.stringsByToken.ContainsKey(token))
+                {
+                    language1.stringsByToken[token] = output;
+                }
+                else
+                {
+                    language1.stringsByToken.Add(token, output);
+                }
+                return;
+            }
+            LanguageTokensToAddOnLoad languageTokensToAddOnLoad = new LanguageTokensToAddOnLoad(token, output, language);
+        }
+        public static void SelectRowsSection(string sectionName)
+        {
+            foreach (Section section in Section.sections)
+            {
+                if (section == null) continue;
+                List<LoadoutPanelController.Row> rows = section.rows;
+                if (rows == null) continue;
+                foreach (LoadoutPanelController.Row row in rows)
+                {
+                    GameObject rowObject = row != null && row.rowPanelTransform ? row.rowPanelTransform.gameObject : null;
+                    if (rowObject == null) continue;
+                    if (sectionName == section.name)
+                    {
+                        rowObject.SetActive(true);
+                    }
+                    else
+                    {
+                        rowObject.SetActive(false);
+                    }
+                }
+            }
+            Section section2 = Section.sectionByName[sectionName];
+            int count2 = section2.rows.Count;
+            for (int j = 0; j < count2; j++)
+            {
+                LoadoutPanelController.Row row = section2.rows[j];
+                int count3 = row.rowData.Count;
+                for (int k = 0; k < count3; k++)
+                {
+                    MPButton button = row.rowData[k].button;
+                    Navigation navigation = button.navigation;
+                    navigation.mode = Navigation.Mode.Explicit;
+                    navigation.selectOnLeft = null;
+                    navigation.selectOnRight = null;
+                    navigation.selectOnUp = section2.button;
+                    navigation.selectOnDown = null;
+                    if (count3 > 1)
+                    {
+                        int index = (k + count3 - 1) % count3;
+                        navigation.selectOnLeft = section2.rows[j].rowData[index].button;
+                        int index2 = (k + count3 + 1) % count3;
+                        navigation.selectOnRight = section2.rows[j].rowData[index2].button;
+                    }
+                    if (count2 > 1)
+                    {
+                        if (j != 0)
+                        {
+                            int num2 = section2.rows[j - 1].rowData.Count - 1;
+                            int index3 = (num2 < k) ? num2 : k;
+                            navigation.selectOnUp = section2.rows[j - 1].rowData[index3].button;
+                        }
+                        if (j != count2 - 1)
+                        {
+                            int num3 = section2.rows[j + 1].rowData.Count - 1;
+                            int index4 = (num3 < k) ? num3 : k;
+                            navigation.selectOnDown = section2.rows[j + 1].rowData[index4].button;
+                        }
+                    }
+                    button.navigation = navigation;
+                }
+            }
+            int count = Section.sections.Count;
+            MPButton buttonToSelect = section2.rows[0].rowData[0].button;
+            for (int i = 0; i < count; i++)
+            {
+                Section section = Section.sections[i];
+                HGButton hGButton = section.button;
+                Navigation navigation = hGButton.navigation;
+                navigation.mode = Navigation.Mode.Explicit;
+                navigation.selectOnLeft = i - 1 < 0 ? Section.sections[count - 1].button : Section.sections[i - 1].button;
+                navigation.selectOnRight = i + 1 < count ? Section.sections[i + 1].button : Section.sections[0].button;
+                navigation.selectOnDown = buttonToSelect;
+                hGButton.navigation = navigation;
+            }
+            buttonToSelect.Select();
+        }
         public static BuffDef CreateBuff(string name, Sprite icon, Color color, bool canStack, bool isDebuff, bool isCooldown, bool isHidden, bool ignoreGrowthNectar)
         {
             BuffDef buffDef = ScriptableObject.CreateInstance<BuffDef>();
@@ -1393,6 +2334,18 @@ private void BulletAttack_Fire(ILContext il)
         public static void ChangeTimescaleForAllClients(float value)
         {
             new TimeScaleChangeNetMessage(value);
+        }
+        public static void AddSniperHurtboxTracker(GameObject sniperHurtboxTracker)
+        {
+            //if (activeSniperHurtboxTrackers.Contains(sniperHurtboxTrackerParams)) return;
+            activeSniperHurtboxTrackers.Add(sniperHurtboxTracker);
+            OnSniperHurtboxAdded(sniperHurtboxTracker);
+        }
+        public static void RemoveSniperHurtboxTracker(GameObject sniperHurtboxTracker)
+        {
+            //if (!activeSniperHurtboxTrackers.Contains(sniperHurtboxTrackerParams)) return;
+            activeSniperHurtboxTrackers.Remove(sniperHurtboxTracker);
+            OnSniperHurtboxRemoved(sniperHurtboxTracker);
         }
     }
     public class ContentPacks : IContentPackProvider
@@ -1484,6 +2437,31 @@ private void BulletAttack_Fire(ILContext il)
         public static bool GetStrafe(this CharacterMotor characterMotor) => (BrynzaInterop.GetStrafe(characterMotor)) || (characterMotor && characterMotor.body && characterMotor.body.GetBuffCount(Assets.StrafeBuff) > 0);
         public static void SetBunnyHop(this CharacterMotor characterMotor, bool flag) => BrynzaInterop.SetBunnyHop(characterMotor, flag);
         public static bool GetBunnyHop(this CharacterMotor characterMotor) => (BrynzaInterop.GetBunnyHop(characterMotor)) || (characterMotor && characterMotor.body && characterMotor.body.GetBuffCount(Assets.BunnyHopBuff) > 0);
+        public static void SetBaseWallJumpCount(this CharacterBody characterBody, int count) => BrynzaInterop.SetBaseWallJumpCount(characterBody, count);
+        public static int GetBaseWallJumpCount(this CharacterBody characterBody) => BrynzaInterop.GetBaseWallJumpCount(characterBody);
+        public static void SetMaxWallJumpCount(this CharacterBody characterBody, int count) => BrynzaInterop.SetMaxWallJumpCount(characterBody, count);
+        public static int GetMaxWallJumpCount(this CharacterBody characterBody) => BrynzaInterop.GetMaxWallJumpCount(characterBody);
+        public static void SetWallJumpCount(this CharacterMotor characterMotor, int count) => BrynzaInterop.SetWallJumpCount(characterMotor, count);
+        public static int GetWallJumpCount(this CharacterMotor characterMotor) => BrynzaInterop.GetWallJumpCount(characterMotor);
+        public static bool CanApplyAmmoPack(this SkillDef skillDef) => BrynzaInterop.CanApplyAmmoPack(skillDef);
+        public static List<object> GetIgnoredHealthComponents(this BulletAttack bulletAttack) => BrynzaInterop.GetIgnoredHealthComponents(bulletAttack);
+        public static void SetIgnoredHealthComponents(this BulletAttack bulletAttack, List<object> list) => BrynzaInterop.SetIgnoredHealthComponents(bulletAttack, list);
+        public static bool GetIgnoreHitTargets(this BulletAttack bulletAttack) => BrynzaInterop.GetIgnoreHitTargets(bulletAttack);
+        public static void SetIgnoreHitTargets(this BulletAttack bulletAttack, bool flag) => BrynzaInterop.SetIgnoreHitTargets(bulletAttack, flag);
+        public static string GetSection(this LoadoutPanelController.Row row) => BrynzaInterop.GetSection(row);
+        public static void SetSection(this LoadoutPanelController.Row row, string section) => BrynzaInterop.SetSection(row, section);
+        public static string GetSection(this GenericSkill genericSkill) => BrynzaInterop.GetSection(genericSkill);
+        public static void SetSection(this GenericSkill genericSkill, string section) => BrynzaInterop.SetSection(genericSkill, section);
+        public static List<string> GetSections(this LoadoutPanelController loadoutPanelController) => BrynzaInterop.GetSections(loadoutPanelController);
+        public static void SetSections(this LoadoutPanelController loadoutPanelController, List<string> sections) => BrynzaInterop.SetSections(loadoutPanelController, sections);
+        public static void ResetIgnoredHealthComponents(this BulletAttack bulletAttack)
+        {
+            if(bulletAttack.GetIgnoredHealthComponents() != null) bulletAttack.GetIgnoredHealthComponents().Clear();
+        }
+        public static void SetStateToMain(this EntityStateMachine entityStateMachine)
+        {
+            entityStateMachine.SetState(EntityStateCatalog.InstantiateState(entityStateMachine.mainStateType.stateType));
+        }
         /// <summary>
         /// Add onHitGroundServer event.
         /// </summary>
@@ -1502,6 +2480,17 @@ private void BulletAttack_Fire(ILContext il)
         //public static GameObject GetWeaponOverride(this BulletAttack bulletAttack) => BrynzaInterop.GetWeaponOverride(bulletAttack);
         //public static void SetOnProjectileExplosion(this ProjectileExplosion projectileExplosion, UnityEvent<BlastAttack, BlastAttack.Result> unityEvent) => BrynzaInterop.SetOnProjectileExplode(projectileExplosion, unityEvent);
         //public static UnityEvent<BlastAttack, BlastAttack.Result> GetOnProjectileExplosion(this ProjectileExplosion projectileExplosion) => BrynzaInterop.GetOnProjectileExplode(projectileExplosion);
+        public static T CopyComponent<T>(this GameObject destination, T original) where T : Component
+        {
+            System.Type type = original.GetType();
+            Component copy = destination.AddComponent(type);
+            System.Reflection.FieldInfo[] fields = type.GetFields();
+            foreach (System.Reflection.FieldInfo field in fields)
+            {
+                field.SetValue(copy, field.GetValue(original));
+            }
+            return copy as T;
+        }
         public static T GetOrAddComponent<T>(this GameObject gameObject) where T : Component
         {
             return gameObject.GetComponent<T>() ?? gameObject.AddComponent<T>();

@@ -2,14 +2,10 @@
 using Mono.Cecil;
 using System;
 using System.Collections.Generic;
-using System.Diagnostics;
 using UnityEngine;
-using UnityEngine.Events;
-using HarmonyLib.Tools;
-using HarmonyLib;
-namespace R2API;
+namespace BrynzaAPI;
 
-internal static class CharacterBodyPatcher
+internal static class Ror2Patcher
 {
     public static IEnumerable<string> TargetDLLs
     {
@@ -24,24 +20,65 @@ internal static class CharacterBodyPatcher
         //PatchSkillLocator(assembly);
         PatchCharacterMotor(assembly);
         PatchProjectileExplosion(assembly);
-        //PatchBulletAttack(assembly);
+        //PatchEntityStateMachine(assembly);
+        //PatchSkillDef(assembly);
+        PatchBulletAttack(assembly);
+        PatchCharacterBody(assembly);
+        PatchRow(assembly);
+        PatchLoadoutPanelController(assembly);
+        //PatchConfigEntry(ref assembly);
     }
 
+    private static void PatchCharacterBody(AssemblyDefinition assembly)
+    {
+        TypeDefinition characterBody = assembly.MainModule.GetType("RoR2", "CharacterBody");
+        if (characterBody != null)
+        {
+            characterBody.Fields.Add(new FieldDefinition("bapi_baseWallJumpCount", FieldAttributes.Public, assembly.MainModule.ImportReference(typeof(int))));
+            characterBody.Fields.Add(new FieldDefinition("bapi_maxWallJumpCount", FieldAttributes.Public, assembly.MainModule.ImportReference(typeof(int))));
+        }
+    }
+    private static void PatchEntityStateMachine(AssemblyDefinition assembly)
+    {
+        TypeDefinition entityStateMachine = assembly.MainModule.GetType("RoR2", "EntityStateMachine");
+        entityStateMachine?.Methods.Add(new MethodDefinition("bapi_SetStateToMain", MethodAttributes.Public, assembly.MainModule.ImportReference(typeof(void))));
+    }
+    private static void PatchSkillDef(AssemblyDefinition assembly)
+    {
+        TypeDefinition genericSkill = assembly.MainModule.GetType("RoR2.Skills", "SkillDef");
+        genericSkill?.Methods.Add(new MethodDefinition("bapi_CanApplyAmmoPack", MethodAttributes.Virtual, assembly.MainModule.ImportReference(typeof(bool))));
+    }
     private static void PatchBulletAttack(AssemblyDefinition assembly)
     {
         TypeDefinition genericSkill = assembly.MainModule.GetType("RoR2", "BulletAttack");
-        genericSkill?.Fields.Add(new FieldDefinition("bapi_weaponOverride", FieldAttributes.Public, assembly.MainModule.ImportReference(typeof(GameObject))));
+        if (genericSkill != null)
+        {
+            genericSkill.Fields.Add(new FieldDefinition("bapi_ignoredHealthComponentList", FieldAttributes.Public, assembly.MainModule.ImportReference(typeof(List<object>))));
+            genericSkill.Fields.Add(new FieldDefinition("bapi_ignoreHitTargets", FieldAttributes.Public, assembly.MainModule.ImportReference(typeof(bool))));
+        }
     }
-
     private static void PatchProjectileExplosion(AssemblyDefinition assembly)
     {
     }
-
     private static void PatchGenericSkill(AssemblyDefinition assembly)
     {
         TypeDefinition genericSkill = assembly.MainModule.GetType("RoR2", "GenericSkill");
-        genericSkill?.Fields.Add(new FieldDefinition("bapi_extraSkills", FieldAttributes.Public, assembly.MainModule.ImportReference(typeof(List<object>))));
-        genericSkill?.Fields.Add(new FieldDefinition("bapi_linkedSkill", FieldAttributes.Public, assembly.MainModule.ImportReference(typeof(object))));
+        if (genericSkill != null)
+        {
+            genericSkill.Fields.Add(new FieldDefinition("bapi_extraSkills", FieldAttributes.Public, assembly.MainModule.ImportReference(typeof(List<object>))));
+            genericSkill.Fields.Add(new FieldDefinition("bapi_linkedSkill", FieldAttributes.Public, assembly.MainModule.ImportReference(typeof(object))));
+            genericSkill.Fields.Add(new FieldDefinition("bapi_section", FieldAttributes.Public, assembly.MainModule.ImportReference(typeof(string))));
+        }
+    }
+    private static void PatchRow(AssemblyDefinition assembly)
+    {
+        TypeDefinition row = assembly.MainModule.GetType("RoR2.UI.LoadoutPanelController/Row");
+        row?.Fields.Add(new FieldDefinition("bapi_section", FieldAttributes.Public, assembly.MainModule.ImportReference(typeof(string))));
+    }
+    private static void PatchLoadoutPanelController(AssemblyDefinition assembly)
+    {
+        TypeDefinition loadoutPanelController = assembly.MainModule.GetType("RoR2.UI", "LoadoutPanelController");
+        loadoutPanelController?.Fields.Add(new FieldDefinition("bapi_sections", FieldAttributes.Public, assembly.MainModule.ImportReference(typeof(List<string>))));
     }
     private static void PatchSkillLocator(AssemblyDefinition assembly)
     {
@@ -51,11 +88,47 @@ internal static class CharacterBodyPatcher
     private static void PatchCharacterMotor(AssemblyDefinition assembly)
     {
         TypeDefinition characterMotor = assembly.MainModule.GetType("RoR2", "CharacterMotor");
-        characterMotor?.Fields.Add(new FieldDefinition("bapi_velocityOverride", FieldAttributes.Public, assembly.MainModule.ImportReference(typeof(Vector3))));
-        characterMotor?.Fields.Add(new FieldDefinition("bapi_keepVelocityOnMoving", FieldAttributes.Public, assembly.MainModule.ImportReference(typeof(bool))));
-        characterMotor?.Fields.Add(new FieldDefinition("bapi_consistentAcceleration", FieldAttributes.Public, assembly.MainModule.ImportReference(typeof(float))));
-        characterMotor?.Fields.Add(new FieldDefinition("bapi_fluidMaxDistanceDelta", FieldAttributes.Public, assembly.MainModule.ImportReference(typeof(bool))));
-        characterMotor?.Fields.Add(new FieldDefinition("bapi_strafe", FieldAttributes.Public, assembly.MainModule.ImportReference(typeof(bool))));
-        characterMotor?.Fields.Add(new FieldDefinition("bapi_bunnyHop", FieldAttributes.Public, assembly.MainModule.ImportReference(typeof(bool))));
+        if (characterMotor != null)
+        {
+            characterMotor.Fields.Add(new FieldDefinition("bapi_velocityOverride", FieldAttributes.Public, assembly.MainModule.ImportReference(typeof(Vector3))));
+            characterMotor.Fields.Add(new FieldDefinition("bapi_keepVelocityOnMoving", FieldAttributes.Public, assembly.MainModule.ImportReference(typeof(bool))));
+            characterMotor.Fields.Add(new FieldDefinition("bapi_consistentAcceleration", FieldAttributes.Public, assembly.MainModule.ImportReference(typeof(float))));
+            characterMotor.Fields.Add(new FieldDefinition("bapi_fluidMaxDistanceDelta", FieldAttributes.Public, assembly.MainModule.ImportReference(typeof(bool))));
+            characterMotor.Fields.Add(new FieldDefinition("bapi_strafe", FieldAttributes.Public, assembly.MainModule.ImportReference(typeof(bool))));
+            characterMotor.Fields.Add(new FieldDefinition("bapi_bunnyHop", FieldAttributes.Public, assembly.MainModule.ImportReference(typeof(bool))));
+            characterMotor.Fields.Add(new FieldDefinition("bapi_wallJumpCount", FieldAttributes.Public, assembly.MainModule.ImportReference(typeof(int))));
+        }
+    }
+    private static void PatchConfigEntry(ref AssemblyDefinition assembly)
+    {
+        TypeDefinition configEntry = assembly.MainModule.GetType("BepInEx.Configuration", "ConfigEntryBase");
+        if (configEntry != null)
+        {
+            configEntry.Fields.Add(new FieldDefinition("bapi_isServerConfig", FieldAttributes.Public, assembly.MainModule.ImportReference(typeof(bool))));
+        }
     }
 }
+
+//internal static class BepinexPatcher
+//{
+//    public static TypeDefinition entry;
+//    public static IEnumerable<string> TargetDLLs
+//    {
+//        get
+//        {
+//            yield return "BepInEx.dll";
+//        }
+//    }
+//    public static void Patch(AssemblyDefinition assembly)
+//    {
+//        PatchConfigEntry(assembly);
+//    }
+//    private static void PatchConfigEntry(AssemblyDefinition assembly)
+//    {
+//        TypeDefinition configEntry = assembly.MainModule.GetType("BepInEx.Configuration", "ConfigEntryBase");
+//        if (configEntry != null)
+//        {
+//            configEntry.Fields.Add(new FieldDefinition("bapi_isServerConfig", FieldAttributes.Public, assembly.MainModule.ImportReference(typeof(bool))));
+//        }
+//    }
+//}

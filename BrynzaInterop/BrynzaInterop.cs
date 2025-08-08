@@ -4,6 +4,8 @@ using System.Linq;
 using System.Runtime.CompilerServices;
 using RoR2;
 using RoR2.Projectile;
+using RoR2.Skills;
+using RoR2.UI;
 using UnityEngine;
 using UnityEngine.Events;
 using UnityEngine.XR;
@@ -66,6 +68,27 @@ public static class BrynzaInterop
     public static void SetStrafe(CharacterMotor characterMotor, bool value) => characterMotor.bapi_strafe = value;
     public static bool GetBunnyHop(CharacterMotor characterMotor) => characterMotor.bapi_bunnyHop;
     public static void SetBunnyHop(CharacterMotor characterMotor, bool value) => characterMotor.bapi_bunnyHop = value;
+    public static int GetBaseWallJumpCount(CharacterBody characterBody) => characterBody.bapi_baseWallJumpCount;
+    public static void SetBaseWallJumpCount(CharacterBody characterBody, int value) => characterBody.bapi_baseWallJumpCount = value;
+    public static int GetMaxWallJumpCount(CharacterBody characterBody) => characterBody.bapi_maxWallJumpCount;
+    public static void SetMaxWallJumpCount(CharacterBody characterBody, int value) => characterBody.bapi_maxWallJumpCount = value;
+    public static int GetWallJumpCount(CharacterMotor characterMotor) => characterMotor.bapi_wallJumpCount;
+    public static void SetWallJumpCount(CharacterMotor characterMotor, int value) => characterMotor.bapi_wallJumpCount = value;
+    public static bool CanApplyAmmoPack(SkillDef skillDef) => skillDef.bapi_CanApplyAmmoPack();
+    public static void SetStateToMain(EntityStateMachine entityStateMachine) => entityStateMachine.bapi_SetStateToMain();
+    public static List<object> GetIgnoredHealthComponents(BulletAttack bulletAttack) => bulletAttack.bapi_ignoredHealthComponentList;
+    public static void SetIgnoredHealthComponents(BulletAttack bulletAttack, List<object> value) => bulletAttack.bapi_ignoredHealthComponentList = value;
+    public static bool GetIgnoreHitTargets(BulletAttack bulletAttack) => bulletAttack.bapi_ignoreHitTargets;
+    public static void SetIgnoreHitTargets(BulletAttack bulletAttack, bool value) => bulletAttack.bapi_ignoreHitTargets = value;
+    public static string GetSection(LoadoutPanelController.Row row) => row.bapi_section;
+    public static void SetSection(LoadoutPanelController.Row row, string value) => row.bapi_section = value;
+    public static string GetSection(GenericSkill genericSkill) => genericSkill.bapi_section;
+    public static void SetSection(GenericSkill genericSkill, string value) => genericSkill.bapi_section = value;
+    public static List<string> GetSections(LoadoutPanelController loadoutPanelController) => loadoutPanelController.bapi_sections;
+    public static void SetSections(LoadoutPanelController loadoutPanelController, List<string> value) => loadoutPanelController.bapi_sections = value;
+    //public static List<HealthComponent> GetIgnoredHealthComponents(BulletAttack bulletAttack) => bulletAttack.bapi_ignoredHealthComponentList != null ? (Enumerable.Range(0, bulletAttack.bapi_ignoredHealthComponentList.Count)
+    //                         .Select(i => (bulletAttack.bapi_ignoredHealthComponentList[i] is HealthComponent ? bulletAttack.bapi_ignoredHealthComponentList[i] as HealthComponent : null))
+    //                         .ToList()) : null;
     //public static GameObject GetWeaponOverride(BulletAttack bulletAttack) => bulletAttack.bapi_weaponOverride;
     //public static void SetWeaponOverride(BulletAttack bulletAttack, GameObject value) => bulletAttack.bapi_weaponOverride = value;
     //public static UnityEvent<BlastAttack, BlastAttack.Result> GetOnProjectileExplode(ProjectileExplosion projectileExplosion)
