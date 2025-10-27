@@ -79,6 +79,10 @@ public static class BrynzaInterop
     public static List<object> GetIgnoredHealthComponents(BulletAttack bulletAttack) => bulletAttack.bapi_ignoredHealthComponentList;
     public static void SetIgnoredHealthComponents(BulletAttack bulletAttack, List<object> value) => bulletAttack.bapi_ignoredHealthComponentList = value;
     public static bool GetIgnoreHitTargets(BulletAttack bulletAttack) => bulletAttack.bapi_ignoreHitTargets;
+    public static void SetForceMassIsOne(BulletAttack bulletAttack, bool value) => bulletAttack.bapi_forceMassIsOne = value;
+    public static bool GetForceMassIsOne(BulletAttack bulletAttack) => bulletAttack.bapi_forceMassIsOne;
+    public static void SetForceMassIsOne(DamageInfo damageInfo, bool value) => damageInfo.bapi_forceMassIsOne = value;
+    public static bool GetForceMassIsOne(DamageInfo damageInfo) => damageInfo.bapi_forceMassIsOne;
     public static void SetIgnoreHitTargets(BulletAttack bulletAttack, bool value) => bulletAttack.bapi_ignoreHitTargets = value;
     public static string GetSection(LoadoutPanelController.Row row) => row.bapi_section;
     public static void SetSection(LoadoutPanelController.Row row, string value) => row.bapi_section = value;
@@ -86,6 +90,8 @@ public static class BrynzaInterop
     public static void SetSection(GenericSkill genericSkill, string value) => genericSkill.bapi_section = value;
     public static List<string> GetSections(LoadoutPanelController loadoutPanelController) => loadoutPanelController.bapi_sections;
     public static void SetSections(LoadoutPanelController loadoutPanelController, List<string> value) => loadoutPanelController.bapi_sections = value;
+    public static bool GetDontFadeWhenNearCamera(ref CharacterModel.RendererInfo rendererInfo) => rendererInfo.bapi_dontFadeCloseOn;
+    public static void SetDontFadeWhenNearCamera(ref CharacterModel.RendererInfo rendererInfo, bool value) => rendererInfo.bapi_dontFadeCloseOn = value;
     //public static List<HealthComponent> GetIgnoredHealthComponents(BulletAttack bulletAttack) => bulletAttack.bapi_ignoredHealthComponentList != null ? (Enumerable.Range(0, bulletAttack.bapi_ignoredHealthComponentList.Count)
     //                         .Select(i => (bulletAttack.bapi_ignoredHealthComponentList[i] is HealthComponent ? bulletAttack.bapi_ignoredHealthComponentList[i] as HealthComponent : null))
     //                         .ToList()) : null;

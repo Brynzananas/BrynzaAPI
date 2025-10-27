@@ -24,6 +24,7 @@ internal static class Ror2Patcher
         //PatchSkillDef(assembly);
         PatchBulletAttack(assembly);
         PatchCharacterBody(assembly);
+        PatchCharacterModel(assembly);
         PatchRow(assembly);
         PatchLoadoutPanelController(assembly);
         //PatchConfigEntry(ref assembly);
@@ -36,6 +37,14 @@ internal static class Ror2Patcher
         {
             characterBody.Fields.Add(new FieldDefinition("bapi_baseWallJumpCount", FieldAttributes.Public, assembly.MainModule.ImportReference(typeof(int))));
             characterBody.Fields.Add(new FieldDefinition("bapi_maxWallJumpCount", FieldAttributes.Public, assembly.MainModule.ImportReference(typeof(int))));
+        }
+    }
+    private static void PatchCharacterModel(AssemblyDefinition assembly)
+    {
+        TypeDefinition rendererInfo = assembly.MainModule.GetType("RoR2.CharacterModel/RendererInfo");
+        if (rendererInfo != null)
+        {
+            rendererInfo.Fields.Add(new FieldDefinition("bapi_dontFadeCloseOn", FieldAttributes.Public, assembly.MainModule.ImportReference(typeof(bool))));
         }
     }
     private static void PatchEntityStateMachine(AssemblyDefinition assembly)
@@ -55,6 +64,7 @@ internal static class Ror2Patcher
         {
             genericSkill.Fields.Add(new FieldDefinition("bapi_ignoredHealthComponentList", FieldAttributes.Public, assembly.MainModule.ImportReference(typeof(List<object>))));
             genericSkill.Fields.Add(new FieldDefinition("bapi_ignoreHitTargets", FieldAttributes.Public, assembly.MainModule.ImportReference(typeof(bool))));
+            genericSkill.Fields.Add(new FieldDefinition("bapi_forceMassIsOne", FieldAttributes.Public, assembly.MainModule.ImportReference(typeof(bool))));
         }
     }
     private static void PatchProjectileExplosion(AssemblyDefinition assembly)
