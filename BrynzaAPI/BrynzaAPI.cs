@@ -1,5 +1,6 @@
 ﻿using BepInEx;
 using BepInEx.Configuration;
+using BepInEx.Logging;
 using BrynzaAPI.Interop;
 using EntityStates;
 using HarmonyLib;
@@ -15,6 +16,7 @@ using R2API.Networking.Interfaces;
 using R2API.Utils;
 using Rewired;
 using Rewired.Utils;
+using Rewired.Utils.Classes.Data;
 using RiskOfOptions;
 using RiskOfOptions.Components.Panel;
 using RiskOfOptions.Options;
@@ -26,6 +28,8 @@ using RoR2.Networking;
 using RoR2.Projectile;
 using RoR2.Skills;
 using RoR2.UI;
+using RoR2BepInExPack.GameAssetPaths;
+using RoR2BepInExPack.Utilities;
 using System;
 using System.Collections;
 using System.Collections.Generic;
@@ -74,7 +78,7 @@ namespace BrynzaAPI
         public const string ModGuid = "com.brynzananas.brynzaapi";
         public const string ModName = "Brynza API";
         public const string ModVer = "1.3.0";
-        public static Dictionary<CharacterMotor, List<OnHitGroundServerDelegate>> onHitGroundServerDictionary = new Dictionary<CharacterMotor, List<OnHitGroundServerDelegate>>();
+        public static FixedConditionalWeakTable<CharacterMotor, List<OnHitGroundServerDelegate>> onHitGroundServerDictionary = new FixedConditionalWeakTable<CharacterMotor, List<OnHitGroundServerDelegate>>();
         public delegate void OnHitGroundServerDelegate(CharacterMotor characterMotor, ref CharacterMotor.HitGroundInfo hitGroundInfo);
         public static bool riskOfOptionsLoaded = false;
         public static BepInEx.Configuration.ConfigFile ConfigMain;
@@ -89,6 +93,7 @@ namespace BrynzaAPI
         public static HGButton loadoutSectionButton;
         public static GameObject loadoutSectionHolder;
         public const string LoadoutMainSectionToken = "LOADOUT_SECTION_MAIN";
+        public static Dictionary<ConfigFile, Dictionary<ConfigDefinition, string>> defaultConfigValues = [];
         private static bool takeServerConfigValues
         {
             get { return (Run.instance || SceneManager.GetActiveScene().name == "lobby"); }
@@ -99,10 +104,18 @@ namespace BrynzaAPI
             set { tokenKeywordsKeys = value.Keys.ToArray(); _tokenKeywords = value; }
         }
         private Harmony harmonyPatcher;
-        public Action<string, BodyIndex> GetBodyIndexInSetBodyPrefabs;
+        public static BaseUnityPlugin instance { get; private set; }
+        public static ManualLogSource Log { get; private set; }
+
         public void Awake()
         {
+            instance = this;
+            Log = Logger;
             ConfigMain = Config;
+            BunnyHopBuff = Utils.CreateBuff("bapiBunnyHop", null, Color.white, false, false, false, true, true);
+            StrafeBuff = Utils.CreateBuff("bapiStrafing", null, Color.white, false, false, false, true, true);
+            KeepVelocityBuff = Utils.CreateBuff("bapiKeepVelocity", null, Color.white, false, false, false, true, true);
+            AirControlFromVelocityAddBuff = Utils.CreateBuff("bapiAirControlFromVelocityAdd", null, Color.white, false, false, false, true, true);
             NetworkingAPI.RegisterMessageType<SyncConfigsNetMessage>();
             NetworkingAPI.RegisterMessageType<RequestSyncConfigsNetMessage>();
             riskOfOptionsLoaded = BepInEx.Bootstrap.Chainloader.PluginInfos.ContainsKey(RiskOfOptions.PluginInfo.PLUGIN_GUID);
@@ -158,13 +171,11 @@ namespace BrynzaAPI
             IL.RoR2.CharacterMotor.PreMove += CharacterMotor_PreMove;
             IL.RoR2.Projectile.ProjectileExplosion.DetonateServer += ProjectileExplosion_DetonateServer;
             IL.EntityStates.GenericCharacterMain.ApplyJumpVelocity += GenericCharacterMain_ApplyJumpVelocity;
-            //IL.RoR2.BulletAttack.Fire += BulletAttack_Fire;
             On.RoR2.GlobalEventManager.OnCharacterHitGroundServer += GlobalEventManager_OnCharacterHitGroundServer;
             ContentManager.collectContentPackProviders += ContentManager_collectContentPackProviders;
             On.RoR2.Run.Start += Run_Start;
             On.RoR2.RoR2Application.OnLoad += RoR2Application_OnLoad;
             On.RoR2.UI.CharacterSelectController.OnEnable += CharacterSelectController_OnEnable;
-            On.RoR2.CharacterMotor.OnDisable += CharacterMotor_OnDisable;
             IL.RoR2.FogDamageController.MyFixedUpdate += FogDamageController_MyFixedUpdate;
             On.RoR2.HurtBox.OnEnable += HurtBox_OnEnable;
             On.RoR2.HurtBox.OnDisable += HurtBox_OnDisable;
@@ -186,16 +197,278 @@ namespace BrynzaAPI
             IL.RoR2.UI.LoadoutPanelController.Row.FromSkin += Row_FromSkin;
             On.RoR2.UI.LoadoutPanelController.Rebuild += LoadoutPanelController_Rebuild;
             //IL.RoR2.HealthComponent.Heal += HealthComponent_Heal;
-            IL.Unity.GeneratedNetworkCode._WritePhysForceInfo_None += GeneratedNetworkCode__WritePhysForceInfo_None;
-            IL.Unity.GeneratedNetworkCode._ReadPhysForceInfo_None += GeneratedNetworkCode__ReadPhysForceInfo_None;
+            //IL.Unity.GeneratedNetworkCode._WritePhysForceInfo_None += GeneratedNetworkCode__WritePhysForceInfo_None;
+            //IL.Unity.GeneratedNetworkCode._ReadPhysForceInfo_None += GeneratedNetworkCode__ReadPhysForceInfo_None;
             //IL.RoR2.BodyCatalog.SetBodyPrefabs += BodyCatalog_SetBodyPrefabs;
             On.RoR2.CharacterModel.UpdateRendererMaterials += CharacterModel_UpdateRendererMaterials;
             IL.RoR2.CharacterModel.UpdateMaterials += CharacterModel_UpdateMaterials;
+            IL.RoR2.BulletAttack.DefaultHitCallbackImplementation += BulletAttack_DefaultHitCallbackImplementation;
+            On.RoR2.NetworkExtensions.Write_NetworkWriter_DamageInfo += NetworkExtensions_Write_NetworkWriter_DamageInfo;
+            On.RoR2.NetworkExtensions.ReadDamageInfo += NetworkExtensions_ReadDamageInfo;
+            //IL.RoR2.HealthComponent.TakeDamageForce_DamageInfo_bool_bool += HealthComponent_TakeDamageForce_DamageInfo_bool_bool;
+            //IL.RoR2.BulletAttack.Fire += BulletAttack_Fire;
+            IL.RoR2.BlastAttack.HandleHits += BlastAttack_HandleHits;
+            IL.RoR2.BlastAttack.PerformDamageServer += BlastAttack_PerformDamageServer;
+            On.RoR2.BlastAttack.BlastAttackDamageInfo.Write += BlastAttackDamageInfo_Write;
+            On.RoR2.BlastAttack.BlastAttackDamageInfo.Read += BlastAttackDamageInfo_Read;
             //IL.RoR2.Util.BuildPrefabTransformPath += Util_BuildPrefabTransformPath;
+            harmonyPatcher = new Harmony(ModGuid);
+            harmonyPatcher.CreateClassProcessor(typeof(Patches)).Patch();
             RoR2Application.onLoadFinished += OnRoR2Loaded;
         }
 
-        private void CharacterModel_UpdateMaterials(ILContext il)
+        private static void BlastAttackDamageInfo_Write(On.RoR2.BlastAttack.BlastAttackDamageInfo.orig_Write orig, ref BlastAttack.BlastAttackDamageInfo self, NetworkWriter writer)
+        {
+            orig(ref self, writer);
+            writer.Write(self.GetForceMassIsOne());
+            writer.Write(self.GetForceAlwaysApply());
+            writer.Write(self.GetForceDisableAirControlUntilCollision());
+        }
+
+        private static void BlastAttackDamageInfo_Read(On.RoR2.BlastAttack.BlastAttackDamageInfo.orig_Read orig, ref BlastAttack.BlastAttackDamageInfo self, NetworkReader reader)
+        {
+            orig(ref self, reader);
+            self.SetForceMassIsOne(reader.ReadBoolean());
+            self.SetForceAlwaysApply(reader.ReadBoolean());
+            self.SetForceDisableAirControlUntilCollision(reader.ReadBoolean());
+        }
+
+        private static void BlastAttack_PerformDamageServer(ILContext il)
+        {
+            ILCursor c = new ILCursor(il);
+            ILLabel iLLabel = null;
+            int locid = 9;
+            if (
+                c.TryGotoNext(MoveType.After,
+                    x => x.MatchNewobj<DamageInfo>(),
+                    x => x.MatchStloc(out locid)
+                ))
+            {
+                c.Emit(OpCodes.Ldloc, locid);
+                c.Emit(OpCodes.Ldarg_0);
+                c.EmitDelegate(SetBlastAttackForce1);
+                void SetBlastAttackForce1(DamageInfo damageInfo, ref BlastAttack.BlastAttackDamageInfo blastAttackDamageInfo)
+                {
+                    damageInfo.SetForceMassIsOne(blastAttackDamageInfo.GetForceMassIsOne());
+                    damageInfo.SetForceAlwaysApply(blastAttackDamageInfo.GetForceAlwaysApply());
+                    damageInfo.SetForceDisableAirControlUntilCollision(blastAttackDamageInfo.GetForceDisableAirControlUntilCollision());
+                }
+            }
+            else
+            {
+                Log.LogError(il.Method.Name + " IL Hook 1 failed!");
+            }
+        }
+
+        private static void BlastAttack_HandleHits(ILContext il)
+        {
+            ILCursor c = new ILCursor(il);
+            ILLabel iLLabel = null;
+            int locid = 9;
+            if (
+                c.TryGotoNext(MoveType.After,
+                    x => x.MatchLdloca(out locid),
+                    x => x.MatchInitobj<BlastAttack.BlastAttackDamageInfo>()
+                ))
+            {
+                c.Emit(OpCodes.Ldloca, locid);
+                c.Emit(OpCodes.Ldarg_0);
+                c.EmitDelegate(SetBlastAttackForce1);
+                void SetBlastAttackForce1(ref BlastAttack.BlastAttackDamageInfo blastAttackDamageInfo, BlastAttack blastAttack)
+                {
+                    blastAttackDamageInfo.SetForceMassIsOne(blastAttack.GetForceMassIsOne());
+                    blastAttackDamageInfo.SetForceAlwaysApply(blastAttack.GetForceAlwaysApply());
+                    blastAttackDamageInfo.SetForceDisableAirControlUntilCollision(blastAttack.GetForceDisableAirControlUntilCollision());
+                }
+            }
+            else
+            {
+                Log.LogError(il.Method.Name + " IL Hook 1 failed!");
+            }
+        }
+
+        private static void BulletAttack_Fire(ILContext il)
+        {
+            ILCursor c = new ILCursor(il);
+            ILLabel iLLabel = null;
+            if (
+                c.TryGotoNext(MoveType.After,
+                    x => x.MatchLdfld<BulletAttack>(nameof(BulletAttack.weapon)),
+                    x => x.MatchCall<UnityEngine.Object>("op_Implicit"),
+                    x => x.MatchBrtrue(out iLLabel)
+                ))
+            {
+                c.Emit(OpCodes.Ldarg_0);
+                c.EmitDelegate(GetNoWeaponIfOwner);
+                bool GetNoWeaponIfOwner(BulletAttack bulletAttack) => bulletAttack.GetNoWeaponIfOwner();
+                c.Emit(OpCodes.Brtrue_S, iLLabel);
+            }
+            else
+            {
+                Log.LogError(il.Method.Name + " IL Hook 1 failed!");
+            }
+        }
+
+        private static string pendingDefaultValue;
+        [HarmonyPatch]
+        class Patches
+        {
+            [HarmonyPatch(typeof(BepInEx.Configuration.ConfigFile), nameof(BepInEx.Configuration.ConfigFile.Reload), MethodType.Normal)]
+            [HarmonyILManipulator]
+            private static void ConfigFile_Reload(MonoMod.Cil.ILContext il)
+            {
+                ILCursor c = new ILCursor(il);
+                if (
+                    c.TryGotoNext(MoveType.Before,
+                        x => x.MatchLdloc(4),
+                        x => x.MatchLdstr("#")
+                        //x => x.MatchCallvirt<String>(nameof(String.Split))
+                    ))
+                {
+                    c.Emit(OpCodes.Ldloc, 4);
+                    c.EmitDelegate(GetDefaultValue);
+                    void GetDefaultValue(string line)
+                    {
+                        if (!line.Contains("# Default value:")) return;
+                        pendingDefaultValue = line.Replace("# Default value: ", "");
+                    }
+                    if (
+                        c.TryGotoNext(MoveType.After,
+                            x => x.MatchLdloc(8),
+                            x => x.MatchLdloc(7)
+                            //x => x.MatchCallvirt(typeof(Dictionary<ConfigDefinition, string>), "set_Item")
+                        ))
+                    {
+                        c.Emit(OpCodes.Ldarg_0);
+                        c.Emit(OpCodes.Ldloc, 8);
+                        c.EmitDelegate(SetDefaultValue);
+                        void SetDefaultValue(ConfigFile configFile, ConfigDefinition configDefinition)
+                        {
+                            if (pendingDefaultValue == null) return;
+                            if (defaultConfigValues.ContainsKey(configFile))
+                            {
+                                Dictionary<ConfigDefinition, string> keyValuePairs = defaultConfigValues[configFile];
+                                if (!keyValuePairs.ContainsKey(configDefinition)) keyValuePairs[configDefinition] = pendingDefaultValue;
+                            }
+                            else
+                            {
+                                Dictionary<ConfigDefinition, string> keyValuePairs = [];
+                                keyValuePairs.Add(configDefinition, pendingDefaultValue);
+                                defaultConfigValues.Add(configFile, keyValuePairs);
+                            }
+                        }
+                    }
+                    else
+                    {
+                        Log.LogError(il.Method.Name + " IL Hook 2 failed!");
+                    }
+                }
+                else
+                {
+                    Log.LogError(il.Method.Name + " IL Hook 1 failed!");
+                }
+            }
+        }
+        private static void HealthComponent_TakeDamageForce_DamageInfo_bool_bool(ILContext il)
+        {
+            ILCursor c = new ILCursor(il);
+            int locId = 3;
+            if (c.TryGotoNext(MoveType.Before,
+                    x => x.MatchLdloc(out locId),
+                    x => x.MatchLdarg(1),
+                    x => x.MatchLdfld<DamageInfo>(nameof(DamageInfo.force)),
+                    x => x.MatchLdarg(2),
+                    x => x.MatchLdarg(3),
+                    x => x.MatchCallvirt<CharacterMotor>(nameof(CharacterMotor.ApplyForce))
+                ))
+            {
+                Instruction instruction = c.Next.Next.Next.Next.Next.Next.Next;
+                Instruction instruction1 = c.Next.Next;
+                c.Index++;
+                c.Emit(OpCodes.Ldarg_1);
+                c.EmitDelegate(HasIsMassIsOne);
+                bool HasIsMassIsOne(DamageInfo damageInfo) => damageInfo.GetForceMassIsOne();
+                c.Emit(OpCodes.Brfalse_S, instruction1);
+                c.Emit(OpCodes.Ldarg_1);
+                c.Emit(OpCodes.Ldarg_2);
+                c.Emit(OpCodes.Ldarg_3);
+                c.EmitDelegate(ApplyForce);
+                void ApplyForce(CharacterMotor characterMotor, DamageInfo damageInfo, bool awlaysApply, bool disableAirControlUntilCollision)
+                {
+                    PhysForceInfo physForceInfo = new PhysForceInfo
+                    {
+                        disableAirControlUntilCollision = disableAirControlUntilCollision,
+                        ignoreGroundStick = awlaysApply,
+                        force = damageInfo.force,
+                        massIsOne = damageInfo.GetForceMassIsOne(),
+                    };
+                    characterMotor.ApplyForceImpulse(physForceInfo);
+                }
+                c.Emit(OpCodes.Br, instruction);
+            }
+            else
+            {
+                Log.LogError(il.Method.Name + " IL Hook failed!");
+            }
+        }
+
+        private DamageInfo NetworkExtensions_ReadDamageInfo(On.RoR2.NetworkExtensions.orig_ReadDamageInfo orig, NetworkReader reader)
+        {
+            DamageInfo damageInfo = orig(reader);
+            damageInfo.SetForceMassIsOne(reader.ReadBoolean());
+            damageInfo.SetForceAlwaysApply(reader.ReadBoolean());
+            damageInfo.SetForceDisableAirControlUntilCollision(reader.ReadBoolean());
+            return damageInfo;
+        }
+
+        private void NetworkExtensions_Write_NetworkWriter_DamageInfo(On.RoR2.NetworkExtensions.orig_Write_NetworkWriter_DamageInfo orig, NetworkWriter writer, DamageInfo damageInfo)
+        {
+            orig(writer, damageInfo);
+            writer.Write(damageInfo.GetForceMassIsOne());
+            writer.Write(damageInfo.GetForceAlwaysApply());
+            writer.Write(damageInfo.GetForceDisableAirControlUntilCollision());
+        }
+
+        private void BulletAttack_DefaultHitCallbackImplementation(ILContext il)
+        {
+            ILCursor c = new ILCursor(il);
+            int locId = 3;
+            if (c.TryGotoNext(MoveType.After,
+                    x => x.MatchNewobj<DamageInfo>(),
+                    x => x.MatchStloc(out locId)
+                ))
+            {
+                c.Emit(OpCodes.Ldloc, locId);
+                c.Emit(OpCodes.Ldarg_0);
+                c.EmitDelegate(SetForceBooleans);
+                void SetForceBooleans(DamageInfo damageInfo, BulletAttack bulletAttack)
+                {
+                    damageInfo.SetForceMassIsOne(bulletAttack.GetForceMassIsOne());
+                    damageInfo.SetForceAlwaysApply(bulletAttack.GetForceAlwaysApply());
+                    damageInfo.SetForceDisableAirControlUntilCollision(bulletAttack.GetForceDisableAirControlUntilCollision());
+
+                }
+                if (c.TryGotoNext(MoveType.After,
+                    x => x.MatchStfld<DamageInfo>(nameof(DamageInfo.force))
+                ))
+                {
+                    c.Emit(OpCodes.Ldloc, locId);
+                    c.Emit(OpCodes.Ldarg_0);
+                    c.EmitDelegate(SetBonusForce);
+                    void SetBonusForce(DamageInfo damageInfo, BulletAttack bulletAttack) => damageInfo.force += bulletAttack.GetBonusForce();
+                }
+                else
+                {
+                    Log.LogError(il.Method.Name + " IL Hook failed!");
+                }
+            }
+            else
+            {
+                Log.LogError(il.Method.Name + " IL Hook failed!");
+            }
+        }
+
+        private static void CharacterModel_UpdateMaterials(ILContext il)
         {
             ILCursor c = new ILCursor(il);
             if (c.TryGotoNext(MoveType.Before,
@@ -205,7 +478,7 @@ namespace BrynzaAPI
             {
                 Instruction instruction = c.Next;
                 Instruction instruction2 = c.Next.Next.Next;
-                c.Emit(OpCodes.Ldloc, 5);
+                c.Emit(OpCodes.Ldloc, 6);
                 c.EmitDelegate(FixFading);
                 bool FixFading(CharacterModel.RendererInfo rendererInfo)
                 {
@@ -220,11 +493,11 @@ namespace BrynzaAPI
             }
             else
             {
-                Debug.LogError(il.Method.Name + " IL Hook 1 failed!");
+                Log.LogError(il.Method.Name + " IL Hook failed!");
             }
         }
 
-        private void CharacterModel_UpdateRendererMaterials(On.RoR2.CharacterModel.orig_UpdateRendererMaterials orig, CharacterModel self, Renderer renderer, Material defaultMaterial, bool ignoreOverlays)
+        private static void CharacterModel_UpdateRendererMaterials(On.RoR2.CharacterModel.orig_UpdateRendererMaterials orig, CharacterModel self, Renderer renderer, Material defaultMaterial, bool ignoreOverlays)
         {
             Material material = defaultMaterial;
             ParticleSystemRenderer particleSystemRenderer = renderer as ParticleSystemRenderer;
@@ -272,7 +545,7 @@ namespace BrynzaAPI
         //    }
         //}
 
-        private void Util_BuildPrefabTransformPath(ILContext il)
+        private static void Util_BuildPrefabTransformPath(ILContext il)
         {
             ILCursor c = new ILCursor(il);
             if (c.TryGotoNext(MoveType.Before,
@@ -305,16 +578,16 @@ namespace BrynzaAPI
                 }
                 else
                 {
-                    Debug.LogError(il.Method.Name + " IL Hook 1 failed!");
+                    Log.LogError(il.Method.Name + " IL Hook 2 failed!");
                 }
             }
             else
             {
-                Debug.LogError(il.Method.Name + " IL Hook 1 failed!");
+                Log.LogError(il.Method.Name + " IL Hook 1 failed!");
             }
         }
 
-        private void GeneratedNetworkCode__ReadPhysForceInfo_None(ILContext il)
+        private static void GeneratedNetworkCode__ReadPhysForceInfo_None(ILContext il)
         {
             ILCursor c = new ILCursor(il);
             if (c.TryGotoNext(MoveType.After,
@@ -340,11 +613,11 @@ namespace BrynzaAPI
             }
             else
             {
-                Debug.LogError(il.Method.Name + " IL Hook failed!");
+                Log.LogError(il.Method.Name + " IL Hook failed!");
             }
         }
 
-        private void GeneratedNetworkCode__WritePhysForceInfo_None(ILContext il)
+        private static void GeneratedNetworkCode__WritePhysForceInfo_None(ILContext il)
         {
             ILCursor c = new ILCursor(il);
             if (c.TryGotoNext(MoveType.After,
@@ -372,7 +645,7 @@ namespace BrynzaAPI
             }
             else
             {
-                Debug.LogError(il.Method.Name + " IL Hook failed!");
+                Log.LogError(il.Method.Name + " IL Hook failed!");
             }
         }
 
@@ -420,7 +693,6 @@ namespace BrynzaAPI
             On.RoR2.Run.Start -= Run_Start;
             On.RoR2.RoR2Application.OnLoad -= RoR2Application_OnLoad;
             On.RoR2.UI.CharacterSelectController.OnEnable -= CharacterSelectController_OnEnable;
-            On.RoR2.CharacterMotor.OnDisable -= CharacterMotor_OnDisable;
             IL.RoR2.FogDamageController.MyFixedUpdate -= FogDamageController_MyFixedUpdate;
             On.RoR2.HurtBox.OnEnable -= HurtBox_OnEnable;
             On.RoR2.HurtBox.OnDisable -= HurtBox_OnDisable;
@@ -459,9 +731,10 @@ namespace BrynzaAPI
             yield break;
         }
         
-        private void LoadoutPanelController_Rebuild(On.RoR2.UI.LoadoutPanelController.orig_Rebuild orig, LoadoutPanelController self)
+        private static void LoadoutPanelController_Rebuild(On.RoR2.UI.LoadoutPanelController.orig_Rebuild orig, LoadoutPanelController self)
         {
             orig(self);
+            Log.LogMessage("Test");
             int rowsCount = Section.sections.Count;
             if (rowsCount <= 0) return;
             if (rowsCount == 1)
@@ -472,8 +745,10 @@ namespace BrynzaAPI
             else
             {
                 LayoutElement layoutElement = loadoutSectionHolder ? loadoutSectionHolder.GetComponent<LayoutElement>() : null;
+                Log.LogMessage(layoutElement);
                 if (layoutElement != null)
                 {
+                    Log.LogMessage("This should work!");
                     layoutElement.minHeight = 32f;
                     layoutElement.preferredHeight = 48f;
                 }
@@ -482,7 +757,7 @@ namespace BrynzaAPI
 
         }
 
-        private void Row_FromSkin(ILContext il)
+        private static void Row_FromSkin(ILContext il)
         {
             ILCursor c = new ILCursor(il);
             //int newLocal = il.Body.Variables.Count;
@@ -502,7 +777,7 @@ namespace BrynzaAPI
             }
             else
             {
-                Debug.LogError(il.Method.Name + " IL Hook failed!");
+                Log.LogError(il.Method.Name + " IL Hook failed!");
             }
         }
         private static void CreateSection(LoadoutPanelController.Row row, string sectionName)
@@ -518,7 +793,7 @@ namespace BrynzaAPI
                 section.rows.Add(row);
             }
         }
-        private void Row_FinishSetup(On.RoR2.UI.LoadoutPanelController.Row.orig_FinishSetup orig, LoadoutPanelController.Row self, bool addWIPIcons)
+        private static void Row_FinishSetup(On.RoR2.UI.LoadoutPanelController.Row.orig_FinishSetup orig, LoadoutPanelController.Row self, bool addWIPIcons)
         {
             orig(self, addWIPIcons);
             //string section = self.GetSection();
@@ -546,13 +821,13 @@ namespace BrynzaAPI
                 layoutElement.preferredHeight = 0f;
             }
         }
-        private void LoadoutPanelController_DestroyRows(On.RoR2.UI.LoadoutPanelController.orig_DestroyRows orig, LoadoutPanelController self)
+        private static void LoadoutPanelController_DestroyRows(On.RoR2.UI.LoadoutPanelController.orig_DestroyRows orig, LoadoutPanelController self)
         {
             ClearSections();
             orig(self);
         }
 
-        private void Row_FromSkillSlot(ILContext il)
+        private static void Row_FromSkillSlot(ILContext il)
         {
             ILCursor c = new ILCursor(il);
             //int newLocal = il.Body.Variables.Count;
@@ -577,10 +852,10 @@ namespace BrynzaAPI
             }
             else
             {
-                Debug.LogError(il.Method.Name + " IL Hook failed!");
+                Log.LogError(il.Method.Name + " IL Hook failed!");
             }
         }
-        private void LoadoutPanelController_Awake(On.RoR2.UI.LoadoutPanelController.orig_Awake orig, LoadoutPanelController self)
+        private static void LoadoutPanelController_Awake(On.RoR2.UI.LoadoutPanelController.orig_Awake orig, LoadoutPanelController self)
         {
             orig(self);
             if (loadoutSectionHolder == null)
@@ -603,12 +878,12 @@ namespace BrynzaAPI
                 horizontalLayoutGroup.childControlHeight = true;
                 horizontalLayoutGroup.childControlWidth = true;
                 LayoutElement layoutElement = loadoutSectionHolder.AddComponent<LayoutElement>();
-                layoutElement.minHeight = 32;
-                layoutElement.preferredHeight = 48;
+                layoutElement.minHeight = 32f;
+                layoutElement.preferredHeight = 48f;
             }
 
         }
-        private bool BulletAttack_ProcessHit(On.RoR2.BulletAttack.orig_ProcessHit orig, BulletAttack self, ref BulletAttack.BulletHit hitInfo)
+        private static bool BulletAttack_ProcessHit(On.RoR2.BulletAttack.orig_ProcessHit orig, BulletAttack self, ref BulletAttack.BulletHit hitInfo)
         {
             if (hitInfo != null && hitInfo.hitHurtBox && hitInfo.hitHurtBox.healthComponent && self.GetIgnoreHitTargets())
             {
@@ -629,12 +904,12 @@ namespace BrynzaAPI
             }
             return orig(self, ref hitInfo);
         }
-        private void CharacterSelectController_OnEnable(On.RoR2.UI.CharacterSelectController.orig_OnEnable orig, RoR2.UI.CharacterSelectController self)
+        private static void CharacterSelectController_OnEnable(On.RoR2.UI.CharacterSelectController.orig_OnEnable orig, RoR2.UI.CharacterSelectController self)
         {
             orig(self);
             SetConfigValues();
         }
-        private void GenericSkill_Awake(ILContext il)
+        private static void GenericSkill_Awake(ILContext il)
         {
             ILCursor c = new ILCursor(il);
             ILLabel iLLabel = null;
@@ -658,18 +933,18 @@ namespace BrynzaAPI
             }
             else
             {
-                Debug.LogError(il.Method.Name + " IL Hook failed!");
+                Log.LogError(il.Method.Name + " IL Hook failed!");
             }
         }
 
-        private void GenericCharacterMain_HandleMovements(On.EntityStates.GenericCharacterMain.orig_HandleMovements orig, EntityStates.GenericCharacterMain self)
+        private static void GenericCharacterMain_HandleMovements(On.EntityStates.GenericCharacterMain.orig_HandleMovements orig, EntityStates.GenericCharacterMain self)
         {
             if (self.characterBody && self.characterBody.HasModdedBodyFlag(Assets.SprintAllTime))
                 self.sprintInputReceived = true;
             orig(self);
         }
 
-        private void CameraModePlayerBasic_CollectLookInputInternal(ILContext il)
+        private static void CameraModePlayerBasic_CollectLookInputInternal(ILContext il)
         {
             ILCursor c = new ILCursor(il);
             ILLabel iLLabel = null;
@@ -691,7 +966,7 @@ namespace BrynzaAPI
             }
             else
             {
-                Debug.LogError(il.Method.Name + " IL Hook failed!");
+                Log.LogError(il.Method.Name + " IL Hook failed!");
             }
         }
 
@@ -715,7 +990,7 @@ namespace BrynzaAPI
             }
             else
             {
-                Debug.LogError(il.Method.Name + " IL Hook failed!");
+                Log.LogError(il.Method.Name + " IL Hook failed!");
             }
         }
 
@@ -740,7 +1015,7 @@ namespace BrynzaAPI
             }
             else
             {
-                Debug.LogError(il.Method.Name + " IL Hook failed!");
+                Log.LogError(il.Method.Name + " IL Hook failed!");
             }
         }
         private static void CameraModePlayerBasic_UpdateInternal(ILContext il)
@@ -775,7 +1050,7 @@ namespace BrynzaAPI
             }
             else
             {
-                Debug.LogError(il.Method.Name + " IL Hook failed!");
+                Log.LogError(il.Method.Name + " IL Hook failed!");
             }
         }
         private static void CrosshairManager_UpdateCrosshair1(ILContext il)
@@ -794,7 +1069,7 @@ namespace BrynzaAPI
                 c.TryGotoNext(
                     x => x.MatchLdarg(1),
                     x => x.MatchCallvirt<CharacterBody>("get_isSprinting"),
-                    x => x.MatchBrtrue(out iLLabel2)
+                    x => x.MatchBrfalse(out iLLabel2)
                 ))
             {
                 c.Emit(OpCodes.Ldarg_1);
@@ -806,10 +1081,10 @@ namespace BrynzaAPI
             }
             else
             {
-                Debug.LogError(il.Method.Name + " IL Hook failed!");
+                Log.LogError(il.Method.Name + " IL Hook failed!");
             }
         }
-        private void CameraRigController_SetCameraState1(On.RoR2.CameraRigController.orig_SetCameraState orig, CameraRigController self, CameraState cameraState)
+        private static void CameraRigController_SetCameraState1(On.RoR2.CameraRigController.orig_SetCameraState orig, CameraRigController self, CameraState cameraState)
         {
             orig(self, cameraState);
             if (worldCrosshairPositionOverride == Vector3.zero) return;
@@ -839,7 +1114,7 @@ namespace BrynzaAPI
             }
         }
 
-        private void CameraRigController_LateUpdate(ILContext il)
+        private static void CameraRigController_LateUpdate(ILContext il)
         {
             ILCursor c = new ILCursor(il);
             Instruction instruction = null;
@@ -872,11 +1147,11 @@ namespace BrynzaAPI
             }
             else
             {
-                Debug.LogError(il.Method.Name + " IL Hook failed!");
+                Log.LogError(il.Method.Name + " IL Hook failed!");
             }
         }
 
-        private void CameraModePlayerBasic_UpdateCrosshair(ILContext il)
+        private static void CameraModePlayerBasic_UpdateCrosshair(ILContext il)
         {
             ILCursor c = new ILCursor(il);
             Instruction instruction = null;
@@ -909,7 +1184,7 @@ namespace BrynzaAPI
             }
             else
             {
-                Debug.LogError(il.Method.Name + " IL Hook failed!");
+                Log.LogError(il.Method.Name + " IL Hook failed!");
             }
         }
 
@@ -980,7 +1255,7 @@ private void GenericSkill_SetBonusStockFromBody(ILContext il)
         }
 
         private static ExtraStatHookEventArgs ExtraStatMods;
-        private void CharacterBody_RecalculateStats(ILContext il)
+        private static void CharacterBody_RecalculateStats(ILContext il)
         {
             ILCursor c = new ILCursor(il);
             c.Emit(OpCodes.Ldarg_0);
@@ -1031,11 +1306,11 @@ private void GenericSkill_SetBonusStockFromBody(ILContext il)
             }
             else
             {
-                Debug.LogError(il.Method.Name + " IL Hook failed!");
+                Log.LogError(il.Method.Name + " IL Hook failed!");
             }
         }
 
-        private void CharacterMotor_OnLanded(ILContext il)
+        private static void CharacterMotor_OnLanded(ILContext il)
         {
             ILCursor c = new ILCursor(il);
             if (
@@ -1054,10 +1329,10 @@ private void GenericSkill_SetBonusStockFromBody(ILContext il)
             }
             else
             {
-                Debug.LogError(il.Method.Name + " IL Hook failed!");
+                Log.LogError(il.Method.Name + " IL Hook failed!");
             }
         }
-        private void GenericCharacterMain_ProcessJump_bool(ILContext il)
+        private static void GenericCharacterMain_ProcessJump_bool(ILContext il)
         {
             ILCursor c = new ILCursor(il);
             Instruction instruction = null;
@@ -1138,22 +1413,22 @@ private void GenericSkill_SetBonusStockFromBody(ILContext il)
                     }
                     else
                     {
-                        Debug.LogError(il.Method.Name + " IL Hook 3 failed!");
+                        Log.LogError(il.Method.Name + " IL Hook 3 failed!");
                     }
                 }
                 else
                 {
-                    Debug.LogError(il.Method.Name + " IL Hook 2 failed!");
+                    Log.LogError(il.Method.Name + " IL Hook 2 failed!");
                 }
             }
             else
             {
-                Debug.LogError(il.Method.Name + " IL Hook 1 failed!");
+                Log.LogError(il.Method.Name + " IL Hook 1 failed!");
             }
             
         }
 
-        private void HealthComponent_TakeDamageProcess(ILContext il)
+        private static void HealthComponent_TakeDamageProcess(ILContext il)
         {
             ILCursor c = new ILCursor(il);
             ILLabel iLLabel = null;
@@ -1161,6 +1436,30 @@ private void GenericSkill_SetBonusStockFromBody(ILContext il)
             Mono.Cecil.FieldReference damageInfoField = null;
             Mono.Cecil.FieldReference attackerBodyField = null;
             int i = 6;
+            if (c.TryGotoNext(MoveType.Before,
+                x => x.MatchLdloc(out thatStructId),
+                    x => x.MatchLdfld(out damageInfoField),
+                    x => x.MatchLdcI4(0),
+                    x => x.MatchLdcI4(0),
+                    x => x.MatchCall<HealthComponent>(nameof(HealthComponent.TakeDamageForce))
+                ))
+            {
+                c.Index += 2;
+                c.RemoveRange(2);
+                c.Emit(OpCodes.Ldloc, thatStructId);
+                c.Emit(OpCodes.Ldfld, damageInfoField);
+                c.EmitDelegate(SetAlwaysApply);
+                bool SetAlwaysApply(DamageInfo damageInfo) => damageInfo.GetForceAlwaysApply();
+                c.Emit(OpCodes.Ldloc, thatStructId);
+                c.Emit(OpCodes.Ldfld, damageInfoField);
+                c.EmitDelegate(SetDisableAirControl);
+                bool SetDisableAirControl(DamageInfo damageInfo) => damageInfo.GetForceDisableAirControlUntilCollision();
+            }
+            else
+            {
+                Log.LogError(il.Method.Name + " IL Hook 1 failed!");
+            }
+            c = new ILCursor(il);
             if (c.TryGotoNext(MoveType.Before,
                     x => x.MatchLdloca(out var num),
                     x => x.MatchLdloc(out thatStructId),
@@ -1170,7 +1469,7 @@ private void GenericSkill_SetBonusStockFromBody(ILContext il)
                     x => x.MatchStfld(out attackerBodyField)
                 ))
             {
-                if (c.TryGotoNext(MoveType.Before,
+                /*if (c.TryGotoNext(MoveType.Before,
                     x => x.MatchLdloc(7),
                     x => x.MatchStloc(8)
                 ))
@@ -1201,18 +1500,19 @@ private void GenericSkill_SetBonusStockFromBody(ILContext il)
                 }
                 else
                 {
-                    Debug.LogError(il.Method.Name + " IL Hook 2 failed!");
-                }
+                    Log.LogError(il.Method.Name + " IL Hook 3 failed!");
+                }*/
             }
             else
             {
-                Debug.LogError(il.Method.Name + " IL Hook 1 failed!");
-            }        }
+                Log.LogError(il.Method.Name + " IL Hook 2 failed!");
+            }
+        }
 
-        private bool GenericSkill_CanApplyAmmoPack(On.RoR2.GenericSkill.orig_CanApplyAmmoPack orig, GenericSkill self)
+        private static bool GenericSkill_CanApplyAmmoPack(On.RoR2.GenericSkill.orig_CanApplyAmmoPack orig, GenericSkill self)
         {
-            if(self.skillDef)
-            self.skillDef.CanApplyAmmoPack();
+            if (self.skillDef)
+                self.skillDef.CanApplyAmmoPack();
             return orig(self);
         }
 
@@ -1224,14 +1524,14 @@ private void GenericSkill_SetBonusStockFromBody(ILContext il)
         {
             onSniperHurtboxRemoved?.Invoke(sniperHurtboxTracker);
         }
-        private void HurtBox_OnDisable(On.RoR2.HurtBox.orig_OnDisable orig, HurtBox self)
+        private static void HurtBox_OnDisable(On.RoR2.HurtBox.orig_OnDisable orig, HurtBox self)
         {
             orig(self);
             Transform transform = self.transform.Find("SniperHurtboxTrackerObject");
             if (transform) Destroy(transform.gameObject);
         }
 
-        private void HurtBox_OnEnable(On.RoR2.HurtBox.orig_OnEnable orig, HurtBox self)
+        private static void HurtBox_OnEnable(On.RoR2.HurtBox.orig_OnEnable orig, HurtBox self)
         {
             orig(self);
             if (!self.isSniperTarget) return;
@@ -1241,11 +1541,10 @@ private void GenericSkill_SetBonusStockFromBody(ILContext il)
             sniperHurtboxTracker.transform.SetParent(self.transform, false);
         }
 
-        private void FogDamageController_MyFixedUpdate(ILContext il)
+        private static void FogDamageController_MyFixedUpdate(ILContext il)
         {
             ILCursor c = new ILCursor(il);
             Instruction instruction = null;
-            ILLabel iLLabel = null;
             int i = 6;
             if (c.TryGotoNext(MoveType.After,
                     x => x.MatchCallvirt<HealthComponent>(nameof(HealthComponent.TakeDamage))
@@ -1260,6 +1559,7 @@ private void GenericSkill_SetBonusStockFromBody(ILContext il)
                 {
                     c.Index++;
                     c.Emit(OpCodes.Ldloc, i);
+                    c.EmitDelegate(CheckForBodyFlog);
                     bool CheckForBodyFlog(CharacterBody characterBody)
                     {
                         return characterBody.HasModdedBodyFlag(Assets.ImmuneToVoidFog);
@@ -1268,25 +1568,16 @@ private void GenericSkill_SetBonusStockFromBody(ILContext il)
                 }
                 else
                 {
-                    Debug.LogError(il.Method.Name + " IL Hook 2 failed!");
+                    Log.LogError(il.Method.Name + " IL Hook 2 failed!");
                 }
             }
             else
             {
-                Debug.LogError(il.Method.Name + " IL Hook 1 failed!");
+                Log.LogError(il.Method.Name + " IL Hook 1 failed!");
             }
         }
 
-        private void CharacterMotor_OnDisable(On.RoR2.CharacterMotor.orig_OnDisable orig, CharacterMotor self)
-        {
-            orig(self);
-            if (NetworkServer.active)
-            {
-                if(onHitGroundServerDictionary.ContainsKey(self)) onHitGroundServerDictionary.Remove(self);
-            }
-        }
-
-        private void GlobalEventManager_OnCharacterHitGroundServer(On.RoR2.GlobalEventManager.orig_OnCharacterHitGroundServer orig, GlobalEventManager self, CharacterBody characterBody, CharacterMotor.HitGroundInfo hitGroundInfo)
+        private static void GlobalEventManager_OnCharacterHitGroundServer(On.RoR2.GlobalEventManager.orig_OnCharacterHitGroundServer orig, GlobalEventManager self, CharacterBody characterBody, CharacterMotor.HitGroundInfo hitGroundInfo)
         {
             CharacterMotor characterMotor = characterBody.characterMotor;
             if (characterMotor != null && onHitGroundServerDictionary.ContainsKey(characterMotor))
@@ -1299,9 +1590,11 @@ private void GenericSkill_SetBonusStockFromBody(ILContext il)
                 }
             }
             orig(self, characterBody, hitGroundInfo);
+            IOnGroundHitServer[] onGroundHitServers = characterBody.gameObject.GetComponents<IOnGroundHitServer>();
+            if (onGroundHitServers != null) foreach (IOnGroundHitServer onGroundHitServer in onGroundHitServers) onGroundHitServer.OnGroundHitServer(characterBody, hitGroundInfo);
         }
 
-        private void GenericCharacterMain_ApplyJumpVelocity(ILContext il)
+        private static void GenericCharacterMain_ApplyJumpVelocity(ILContext il)
         {
             ILCursor c = new ILCursor(il);
             ILLabel iLLabel = null;
@@ -1338,7 +1631,7 @@ private void GenericSkill_SetBonusStockFromBody(ILContext il)
             }
             else
             {
-                Debug.LogError(il.Method.Name + " IL Hook failed!");
+                Log.LogError(il.Method.Name + " IL Hook failed!");
             }
         }
 
@@ -1397,7 +1690,7 @@ private void BulletAttack_Fire(ILContext il)
    }
 }
 */
-        private void ProjectileExplosion_DetonateServer(ILContext il)
+        private static void ProjectileExplosion_DetonateServer(ILContext il)
         {
             ILCursor c = new ILCursor(il);
             ILLabel iLLabel = null;
@@ -1420,11 +1713,11 @@ private void BulletAttack_Fire(ILContext il)
             }
             else
             {
-                Debug.LogError(il.Method.Name + " IL Hook failed!");
+                Log.LogError(il.Method.Name + " IL Hook failed!");
             }
         }
-
-        private void CharacterMotor_PreMove(ILContext il)
+        public static float strafeMultiplier = 15f;
+        private static void CharacterMotor_PreMove(ILContext il)
         {
             ILCursor c = new ILCursor(il);
             ILLabel iLLabel = null;
@@ -1443,7 +1736,7 @@ private void BulletAttack_Fire(ILContext il)
                         var currentVelocity = new Vector3(cb.velocity.x, 0, cb.velocity.z);
                         var dotProduct = Vector3.Dot(currentVelocity.normalized, wishDirection);
                         if (dotProduct < 0.10)
-                            cb.velocity += new Vector3(wishDirection.x * cb.walkSpeed * 10, 0, wishDirection.z * cb.walkSpeed * 10) * deltaTime;
+                            cb.velocity += new Vector3(wishDirection.x * cb.walkSpeed * strafeMultiplier, 0, wishDirection.z * cb.walkSpeed * strafeMultiplier) * deltaTime;
                     }
                     Vector3 velocityOverride = cb.GetVelocityOverride();
                     bool flag2 = velocityOverride != Vector3.zero;
@@ -1455,7 +1748,7 @@ private void BulletAttack_Fire(ILContext il)
             }
             else
             {
-                Debug.LogError(il.Method.Name + " IL Hook failed!");
+                Log.LogError(il.Method.Name + " IL Hook 1 failed!");
             } 
             c = new ILCursor(il);
             if (c.TryGotoNext(
@@ -1491,7 +1784,7 @@ private void BulletAttack_Fire(ILContext il)
             }
             else
             {
-                Debug.LogError(il.Method.Name + " IL Hook failed!");
+                Log.LogError(il.Method.Name + " IL Hook 2 failed!");
             }
             c = new ILCursor(il);
             if (c.TryGotoNext(
@@ -1512,7 +1805,7 @@ private void BulletAttack_Fire(ILContext il)
             }
             else
             {
-                Debug.LogError(il.Method.Name + " IL Hook failed!");
+                Log.LogError(il.Method.Name + " IL Hook 3 failed!");
             }
             c = new ILCursor(il);
             if (c.TryGotoNext(
@@ -1537,11 +1830,36 @@ private void BulletAttack_Fire(ILContext il)
             }
             else
             {
-                Debug.LogError(il.Method.Name + " IL Hook failed!");
+                Log.LogError(il.Method.Name + " IL Hook 4 failed!");
+            }
+            c = new ILCursor(il);
+            if (c.TryGotoNext(
+                    x => x.MatchMul(),
+                    x => x.MatchStloc(0)
+                ))
+            {
+                c.Index++;
+                c.Emit(OpCodes.Ldarg_0);
+                c.EmitDelegate(amogus);
+                float amogus(CharacterMotor characterMotor)
+                {
+                    float magnitude = characterMotor.GetAirControlFromVelocityAdd();
+                    magnitude += characterMotor.body ? characterMotor.body.GetBuffCount(Assets.AirControlFromVelocityAddBuff) : 0;
+                    if (magnitude == 0) return 0f;
+                    Vector3 vector3 = characterMotor.velocity;
+                    if (!characterMotor.isFlying) vector3.y = 0f;
+                    magnitude *= vector3.magnitude;
+                    return magnitude;
+                }
+                c.Emit(OpCodes.Add);
+            }
+            else
+            {
+                Log.LogError(il.Method.Name + " IL Hook 5 failed!");
             }
         }
 
-        private void CharacterBody_RecalculateStats1(On.RoR2.CharacterBody.orig_RecalculateStats orig, CharacterBody self)
+        private static void CharacterBody_RecalculateStats1(On.RoR2.CharacterBody.orig_RecalculateStats orig, CharacterBody self)
         {
             orig(self);
             if (!self.skillLocator) return;
@@ -1577,7 +1895,7 @@ private void BulletAttack_Fire(ILContext il)
             }
         }
 
-        private float GenericSkill_CalculateFinalRechargeInterval1(On.RoR2.GenericSkill.orig_CalculateFinalRechargeInterval orig, GenericSkill self)
+        private static float GenericSkill_CalculateFinalRechargeInterval1(On.RoR2.GenericSkill.orig_CalculateFinalRechargeInterval orig, GenericSkill self)
         {
             List<GenericSkill> genericSkills = self.GetExtraSkills();
             if (genericSkills != null && genericSkills.Count > 0)
@@ -1592,7 +1910,7 @@ private void BulletAttack_Fire(ILContext il)
             return orig(self);
         }
 
-        private void GenericSkill_CalculateFinalRechargeInterval(ILContext il)
+        private static void GenericSkill_CalculateFinalRechargeInterval(ILContext il)
         {
             ILCursor c = new ILCursor(il);
             //Instruction instruction = null;
@@ -1620,7 +1938,7 @@ private void BulletAttack_Fire(ILContext il)
             }
             else
             {
-                Debug.LogError(il.Method.Name + " IL Hook failed!");
+                Log.LogError(il.Method.Name + " IL Hook failed!");
             }
             if (c.TryGotoNext(
                     x => x.MatchCall<GenericSkill>("get_flatCooldownReduction")
@@ -1643,7 +1961,7 @@ private void BulletAttack_Fire(ILContext il)
             }
             else
             {
-                Debug.LogError(il.Method.Name + " IL Hook failed!");
+                Log.LogError(il.Method.Name + " IL Hook failed!");
             }
             if (c.TryGotoNext(
                     x => x.MatchCall<GenericSkill>("get_temporaryCooldownPenalty")
@@ -1666,12 +1984,12 @@ private void BulletAttack_Fire(ILContext il)
             }
             else
             {
-                Debug.LogError(il.Method.Name + " IL Hook failed!");
+                Log.LogError(il.Method.Name + " IL Hook failed!");
             }
         }
 
 
-        private void GenericSkill_RecalculateMaxStock1(ILContext il)
+        private static void GenericSkill_RecalculateMaxStock1(ILContext il)
         {
             ILCursor c = new ILCursor(il);
             ILLabel iLLabel = null;
@@ -1696,11 +2014,11 @@ private void BulletAttack_Fire(ILContext il)
             }
             else
             {
-                Debug.LogError(il.Method.Name + " IL Hook failed!");
+                Log.LogError(il.Method.Name + " IL Hook failed!");
             }
         }
 
-        private void GenericSkill_RecalculateMaxStock(On.RoR2.GenericSkill.orig_RecalculateMaxStock orig, GenericSkill self)
+        private static void GenericSkill_RecalculateMaxStock(On.RoR2.GenericSkill.orig_RecalculateMaxStock orig, GenericSkill self)
         {
             orig(self);
             List<GenericSkill> genericSkills = self.GetExtraSkills();
@@ -2122,7 +2440,7 @@ private void BulletAttack_Fire(ILContext il)
             PropertyName = propertyName;
         }
     }
-    public class Assets
+    public static class Assets
     {
         /// <summary>
         /// Body will sprint all time. All sprinting negative effects will be nullified.
@@ -2135,11 +2453,19 @@ private void BulletAttack_Fire(ILContext il)
         /// <summary>
         /// Jumping will not reset horizontal velocity.
         /// </summary>
-        public static BuffDef BunnyHopBuff = Utils.CreateBuff("bapiBunnyHop", null, Color.white, false, false, false, true, true);
+        public static BuffDef BunnyHopBuff;
         /// <summary>
         /// Perpendicullar to horizontal velocity movement will make a sharp turn.
         /// </summary>
-        public static BuffDef StrafeBuff = Utils.CreateBuff("bapiStrafing", null, Color.white, false, false, false, true, true);
+        public static BuffDef StrafeBuff;
+        /// <summary>
+        /// KeepVelocityBuff.
+        /// </summary>
+        public static BuffDef KeepVelocityBuff;
+        /// <summary>
+        /// KeepVelocityBuff.
+        /// </summary>
+        public static BuffDef AirControlFromVelocityAddBuff;
         /// <summary>
         /// Set this damage type to set taked damage to targets max health. Works only on non champion enemies
         /// </summary>
@@ -2224,6 +2550,29 @@ private void BulletAttack_Fire(ILContext il)
             if (button != null) GameObject.Destroy(button.gameObject);
         }
     }
+    public class ProjectileOnMessage : MessageBase
+    {
+        public override void Serialize(NetworkWriter writer)
+        {
+        }
+        public override void Deserialize(NetworkReader reader)
+        {
+        }
+    }
+    public interface IProjectileOnFireMessage
+    {
+        public void Deserialize(NetworkReader reader)
+        {
+        }
+
+        public void OnReceived(ProjectileController projectileController)
+        {
+        }
+
+        public void Serialize(NetworkWriter writer)
+        {
+        }
+    }
     /// <summary>
     /// Gives a method that runs on ProjectileExplosion Detonate method.
     /// </summary>
@@ -2250,6 +2599,20 @@ private void BulletAttack_Fire(ILContext il)
             };
             CharacterMaster characterMaster = masterSummon.Perform();
             onMasterSummon?.InvokeAll(this, characterMaster);
+        }
+    }
+    public interface IOnGroundHitServer
+    {
+        public void OnGroundHitServer(CharacterBody characterBody, CharacterMotor.HitGroundInfo hitGroundInfo);
+    }
+    public class RemoveBuffsOnGroundHitServer : MonoBehaviour, IOnGroundHitServer
+    {
+        public List<BuffDef> buffDefs = [];
+        public void OnGroundHitServer(CharacterBody characterBody, CharacterMotor.HitGroundInfo hitGroundInfo)
+        {
+            Destroy(this);
+            if (buffDefs == null || !characterBody) return;
+            foreach (BuffDef buffDef in buffDefs) characterBody.RemoveBuff(buffDef);
         }
     }
     [RequireComponent(typeof(ProjectileController))]
@@ -2279,18 +2642,19 @@ private void BulletAttack_Fire(ILContext il)
         public float radiusMultiplier = 1.25f;
         public bool alwaysApply = true;
         public bool disableAirControl = true;
-        public bool applyStrafing = true;
+        public List<BuffDef> buffsWhileMidair = new List<BuffDef>();
         public RocketJumpFiltering rocketJumpFiltering;
         public delegate void OnRocketJumpApplied(RocketJumpComponent rocketJumpComponent, CharacterBody characterBody, Vector3 force);
         public DelegateHolder<OnRocketJumpApplied> onRocketJumpApplied;
         public void OnProjectileExplosionDetonate(BlastAttack blastAttack, BlastAttack.Result result)
         {
-            Collider[] colliders = Physics.OverlapSphere(blastAttack.position, blastAttack.radius * radiusMultiplier, LayerIndex.CommonMasks.characterBodies, QueryTriggerInteraction.UseGlobal);
+            Collider[] colliders = Physics.OverlapSphere(blastAttack.position, blastAttack.radius * radiusMultiplier, LayerIndex.CommonMasks.characterBodiesOrDefault, QueryTriggerInteraction.UseGlobal);
             List<CharacterBody> li = new List<CharacterBody>();
             foreach (Collider collider in colliders)
             {
                 CharacterBody body = collider.GetComponent<CharacterBody>();
                 if (!body || li.Contains(body)) continue;
+                Log.LogMessage(body);
                 li.Add(body);
                 bool flag = false;
                 switch (rocketJumpFiltering)
@@ -2317,24 +2681,29 @@ private void BulletAttack_Fire(ILContext il)
                 if (body.characterMotor)
                 {
                     if (body.characterMotor.velocity.y < 0f)
-                    body.characterMotor.velocity.y = 0f;
+                    {
+                        PhysForceInfo physForceInfo = new PhysForceInfo
+                        {
+                            force = new Vector3(0f, -body.characterMotor.velocity.y, 0f),
+                            disableAirControlUntilCollision = false,
+                            ignoreGroundStick = true,
+                            massIsOne = true,
+                        };
+                        body.characterMotor.ApplyForceImpulse(physForceInfo);
+                    }
                     body.characterMotor.ApplyForce(vector3, alwaysApply, disableAirControl);
                 }
                 else if (body.rigidbody)
                 {
-                    if (body.characterMotor.velocity.y < 0f)
+                    if (body.rigidbody.velocity.y < 0f)
                         body.rigidbody.velocity = new Vector3(body.rigidbody.velocity.x, 0f, body.rigidbody.velocity.y);
                     body.rigidbody.AddForce(vector3, ForceMode.Impulse);
                 }
-                if (applyStrafing && body.characterMotor && body.GetBuffCount(StrafeBuff) <= 0)
+                if (body.characterMotor)
                 {
-                    body.AddBuff(StrafeBuff);
-                    body.characterMotor.AddOnHitGroundServerDelegate(sus);
-                    void sus(CharacterMotor characterMotor, ref CharacterMotor.HitGroundInfo hitGroundInfo)
-                    {
-                        body.characterMotor.RemoveOnHitGroundServerDelegate(sus);
-                        body.RemoveBuff(StrafeBuff);
-                    }
+                    RemoveBuffsOnGroundHitServer removeBuffsOnGroundHitServer = body.gameObject.GetOrAddComponent<RemoveBuffsOnGroundHitServer>();
+                    removeBuffsOnGroundHitServer.buffDefs.AddRange(buffsWhileMidair);
+                    foreach (BuffDef buffDef in buffsWhileMidair) body.AddBuff(buffDef);
                 }
                 onRocketJumpApplied?.InvokeAll(this, body, vector3);
             }
@@ -2855,12 +3224,14 @@ private void BulletAttack_Fire(ILContext il)
         /// Set Character Motor movement to take current velocity.
         /// </summary>
         public static void SetKeepVelocityOnMoving(this CharacterMotor characterMotor, bool flag) => BrynzaInterop.SetKeepVelocityOnMoving(characterMotor, flag);
-        public static bool GetKeepVelocityOnMoving(this CharacterMotor characterMotor) => BrynzaInterop.GetKeepVelocityOnMoving(characterMotor);
+        public static bool GetKeepVelocityOnMoving(this CharacterMotor characterMotor) => BrynzaInterop.GetKeepVelocityOnMoving(characterMotor) || (characterMotor && characterMotor.body && characterMotor.body.GetBuffCount(Assets.KeepVelocityBuff) > 0);
         /// <summary>
         /// Set Character Motor to have consistent air acceleration.
         /// </summary>
         public static void SetConsistentAcceleration(this CharacterMotor characterMotor, float value) => BrynzaInterop.SetConsistentAcceleration(characterMotor, value);
         public static float GetConsistentAcceleration(this CharacterMotor characterMotor) => BrynzaInterop.GetConsistentAcceleration(characterMotor);
+        public static float GetAirControlFromVelocityAdd(this CharacterMotor characterMotor) => BrynzaInterop.GetAirControlFromVelocityAdd(characterMotor);
+        public static void SetAirControlFromVelocityAdd(this CharacterMotor characterMotor, float value) => BrynzaInterop.SetAirControlFromVelocityAdd(characterMotor, value);
         [Obsolete("Doesn't work as intended", true)]
         public static void SetFluidMaxDistanceDelta(this CharacterMotor characterMotor, bool flag) => BrynzaInterop.SetFluidMaxDistanceDelta(characterMotor, flag);
         public static bool GetFluidMaxDistanceDelta(this CharacterMotor characterMotor) => BrynzaInterop.GetFluidMaxDistanceDelta(characterMotor);
@@ -2889,8 +3260,32 @@ private void BulletAttack_Fire(ILContext il)
         public static void SetDontFadeWhenNearCamera(this ref CharacterModel.RendererInfo rendererInfo, bool flag) => BrynzaInterop.SetDontFadeWhenNearCamera(ref rendererInfo, flag);
         public static void SetForceMassIsOne(this BulletAttack bulletAttack, bool flag) => BrynzaInterop.SetForceMassIsOne(bulletAttack, flag);
         public static bool GetForceMassIsOne(this BulletAttack bulletAttack) => BrynzaInterop.GetForceMassIsOne(bulletAttack);
+        public static void SetForceMassIsOne(this BlastAttack blastAttack, bool flag) => BrynzaInterop.SetForceMassIsOne(blastAttack, flag);
+        public static bool GetForceMassIsOne(this BlastAttack blastAttack) => BrynzaInterop.GetForceMassIsOne(blastAttack);
+        public static void SetForceMassIsOne(this ref BlastAttack.BlastAttackDamageInfo blastAttackDamageInfo, bool flag) => BrynzaInterop.SetForceMassIsOne(ref blastAttackDamageInfo, flag);
+        public static bool GetForceMassIsOne(this ref BlastAttack.BlastAttackDamageInfo blastAttackDamageInfo) => BrynzaInterop.GetForceMassIsOne(ref blastAttackDamageInfo);
         public static void SetForceMassIsOne(this DamageInfo damageInfo, bool flag) => BrynzaInterop.SetForceMassIsOne(damageInfo, flag);
         public static bool GetForceMassIsOne(this DamageInfo damageInfo) => BrynzaInterop.GetForceMassIsOne(damageInfo);
+        public static void SetForceAlwaysApply(this BulletAttack bulletAttack, bool value) => BrynzaInterop.SetForceAlwaysApply(bulletAttack, value);
+        public static bool GetForceAlwaysApply(this BulletAttack bulletAttack) => BrynzaInterop.GetForceAlwaysApply(bulletAttack);
+        public static void SetForceAlwaysApply(this BlastAttack blastAttack, bool value) => BrynzaInterop.SetForceAlwaysApply(blastAttack, value);
+        public static bool GetForceAlwaysApply(this BlastAttack blastAttack) => BrynzaInterop.GetForceAlwaysApply(blastAttack);
+        public static void SetForceAlwaysApply(this ref BlastAttack.BlastAttackDamageInfo blastAttackDamageInfo, bool value) => BrynzaInterop.SetForceAlwaysApply(ref blastAttackDamageInfo, value);
+        public static bool GetForceAlwaysApply(this ref BlastAttack.BlastAttackDamageInfo blastAttackDamageInfo) => BrynzaInterop.GetForceAlwaysApply(ref blastAttackDamageInfo);
+        public static void SetForceAlwaysApply(this DamageInfo damageInfo, bool value) => BrynzaInterop.SetForceAlwaysApply(damageInfo, value);
+        public static bool GetForceAlwaysApply(this DamageInfo damageInfo) => BrynzaInterop.GetForceAlwaysApply(damageInfo);
+        public static void SetForceDisableAirControlUntilCollision(this BulletAttack bulletAttack, bool value) => BrynzaInterop.SetForceDisableAirControlUntilCollision(bulletAttack, value);
+        public static bool GetForceDisableAirControlUntilCollision(this BulletAttack bulletAttack) => BrynzaInterop.GetForceDisableAirControlUntilCollision(bulletAttack);
+        public static void SetForceDisableAirControlUntilCollision(this BlastAttack blastAttack, bool value) => BrynzaInterop.SetForceDisableAirControlUntilCollision(blastAttack, value);
+        public static bool GetForceDisableAirControlUntilCollision(this BlastAttack blastAttack) => BrynzaInterop.GetForceDisableAirControlUntilCollision(blastAttack);
+        public static void SetForceDisableAirControlUntilCollision(this ref BlastAttack.BlastAttackDamageInfo blastAttackDamageInfo, bool value) => BrynzaInterop.SetForceDisableAirControlUntilCollision(ref blastAttackDamageInfo, value);
+        public static bool GetForceDisableAirControlUntilCollision(this ref BlastAttack.BlastAttackDamageInfo blastAttackDamageInfo) => BrynzaInterop.GetForceDisableAirControlUntilCollision(ref blastAttackDamageInfo);
+        public static void SetForceDisableAirControlUntilCollision(this DamageInfo damageInfo, bool value) => BrynzaInterop.SetForceDisableAirControlUntilCollision(damageInfo, value);
+        public static bool GetForceDisableAirControlUntilCollision(this DamageInfo damageInfo) => BrynzaInterop.GetForceAlwaysApply(damageInfo);
+        public static void SetBonusForce(this BulletAttack bulletAttack, Vector3 bonusForce) => BrynzaInterop.SetBonusForce(bulletAttack, bonusForce);
+        public static Vector3 GetBonusForce(this BulletAttack bulletAttack) => BrynzaInterop.GetBonusForce(bulletAttack);
+        public static void SetNoWeaponIfOwner(this BulletAttack bulletAttack, bool value) => BrynzaInterop.SetNoWeaponIfOwner(bulletAttack, value);
+        public static bool GetNoWeaponIfOwner(this BulletAttack bulletAttack) => BrynzaInterop.GetNoWeaponIfOwner(bulletAttack);
         public static void ResetIgnoredHealthComponents(this BulletAttack bulletAttack)
         {
             if(bulletAttack.GetIgnoredHealthComponents() != null) bulletAttack.GetIgnoredHealthComponents().Clear();
@@ -2904,14 +3299,29 @@ private void BulletAttack_Fire(ILContext il)
         /// </summary>
         public static void AddOnHitGroundServerDelegate(this CharacterMotor characterMotor, OnHitGroundServerDelegate hitGroundServerDelegate)
         {
-            BrynzaAPI.onHitGroundServerDictionary.AddValueToListInDictionary(characterMotor, hitGroundServerDelegate);
+            if (onHitGroundServerDictionary.ContainsKey(characterMotor))
+            {
+                onHitGroundServerDictionary[characterMotor].Add(hitGroundServerDelegate);
+            }
+            else
+            {
+                List<OnHitGroundServerDelegate> list = [hitGroundServerDelegate];
+                onHitGroundServerDictionary.Add(characterMotor, list);
+            }
         }
         /// <summary>
         /// Remove onHitGroundServer event.
         /// </summary>
         public static void RemoveOnHitGroundServerDelegate(this CharacterMotor characterMotor, OnHitGroundServerDelegate hitGroundServerDelegate)
         {
-            BrynzaAPI.onHitGroundServerDictionary.RemoveValueFromListInDictionary(characterMotor, hitGroundServerDelegate);
+            if (onHitGroundServerDictionary.ContainsKey(characterMotor))
+            {
+                onHitGroundServerDictionary[characterMotor].Remove(hitGroundServerDelegate);
+                if (onHitGroundServerDictionary[characterMotor].Count <= 0)
+                {
+                    onHitGroundServerDictionary.Remove(characterMotor);
+                }
+            }
         }
         //public static void SetWeaponOverride(this BulletAttack bulletAttack, GameObject gameObject) => BrynzaInterop.SetWeaponOverride(bulletAttack, gameObject);
         //public static GameObject GetWeaponOverride(this BulletAttack bulletAttack) => BrynzaInterop.GetWeaponOverride(bulletAttack);

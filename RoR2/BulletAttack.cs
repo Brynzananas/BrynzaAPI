@@ -13,5 +13,9 @@ namespace RoR2
         public List<object> bapi_ignoredHealthComponentList;
         public bool bapi_ignoreHitTargets;
         public bool bapi_forceMassIsOne;
+        public bool bapi_forceAlwaysApply;
+        public bool bapi_forceDisableAirControlUntilCollision;
+        public Vector3 bapi_bonusForce;
+        public bool bapi_noWeaponIfOwner;
     }
 }
