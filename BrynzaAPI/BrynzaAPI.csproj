@@ -3,7 +3,7 @@
 	<PropertyGroup>
 		<TargetFramework>netstandard2.1</TargetFramework>
 		<LangVersion>preview</LangVersion>
-		<BaseOutputPath>D:\r2modman\RiskOfRain2\profiles\my_mod\BepInEx\plugins\BrynzaAPI</BaseOutputPath>
+		<BaseOutputPath>C:\Users\1\AppData\Roaming\com.kesomannen.gale\riskofrain2\profiles\Default2\BepInEx\plugins\BrynzaAPI</BaseOutputPath>
 	</PropertyGroup>
 
 	<ItemGroup>
@@ -16,9 +16,8 @@
 		<PackageReference Include="MMHOOK.RoR2" Version="2025.11.18" NoWarn="NU1701" />
 		<PackageReference Include="R2API" Version="5.0.5" />
 		<PackageReference Include="Rune580.Mods.RiskOfRain2.RiskOfOptions" Version="2.8.2" />
-		<PackageReference Include="MetrosexualFruitcake-CustomEmotesAPI" Version="1.6.3" />
-		<ProjectReference Include="D:\Ror2Mods\BrynzaAPI\BrynzaAPI\BrynzaInterop\BrynzaInterop.csproj" Private="false" />
-		<ProjectReference Include="D:\Ror2Mods\BrynzaAPI\BrynzaAPI\BrynzaPatcher\BrynzaPatcher.csproj" Private="false" PrivateAssets="all" ReferenceOutputAssembly="false" />
+		<ProjectReference Include="C:\Users\1\source\repos\Brynzananas\BrynzaAPI\BrynzaInterop\BrynzaInterop.csproj" Private="false" />
+		<ProjectReference Include="C:\Users\1\source\repos\Brynzananas\BrynzaAPI\BrynzaPatcher\BrynzaPatcher.csproj" Private="false" PrivateAssets="all" ReferenceOutputAssembly="false" />
 	</ItemGroup>
 
 </Project>

@@ -118,6 +118,10 @@ public static class BrynzaInterop
     public static void SetDontFadeWhenNearCamera(ref CharacterModel.RendererInfo rendererInfo, bool value) => rendererInfo.bapi_dontFadeCloseOn = value;
     public static void SetNoWeaponIfOwner(BulletAttack bulletAttack, bool value) => bulletAttack.bapi_noWeaponIfOwner = value;
     public static bool GetNoWeaponIfOwner(BulletAttack bulletAttack) => bulletAttack.bapi_noWeaponIfOwner;
+    public static float GetPitchClipCycleStart(AimAnimator aimAnimator) => aimAnimator.bapi_pitchClipCycleStart;
+    public static void SetPitchClipCycleStart(AimAnimator aimAnimator, float value) => aimAnimator.bapi_pitchClipCycleStart = value;
+    public static float GetYawClipCycleStart(AimAnimator aimAnimator) => aimAnimator.bapi_yawClipCycleStart;
+    public static void SetYawClipCycleStart(AimAnimator aimAnimator, float value) => aimAnimator.bapi_yawClipCycleStart = value;
     //public static List<HealthComponent> GetIgnoredHealthComponents(BulletAttack bulletAttack) => bulletAttack.bapi_ignoredHealthComponentList != null ? (Enumerable.Range(0, bulletAttack.bapi_ignoredHealthComponentList.Count)
     //                         .Select(i => (bulletAttack.bapi_ignoredHealthComponentList[i] is HealthComponent ? bulletAttack.bapi_ignoredHealthComponentList[i] as HealthComponent : null))
     //                         .ToList()) : null;

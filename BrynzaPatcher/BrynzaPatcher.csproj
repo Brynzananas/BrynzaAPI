@@ -6,7 +6,7 @@
 		<AllowUnsafeBlocks>true</AllowUnsafeBlocks>
 		<NoWarn>$(NoWarn);NU5104</NoWarn>
 		<RootNamespace>BrynzaAPI</RootNamespace>
-		<BaseOutputPath>D:\r2modman\RiskOfRain2\profiles\my_mod\BepInEx\patchers\BrynzaAPI</BaseOutputPath>
+		<BaseOutputPath>C:\Users\1\AppData\Roaming\com.kesomannen.gale\riskofrain2\profiles\Default2\BepInEx\patchers\BrynzaAPI</BaseOutputPath>
 	</PropertyGroup>
 
 	<ItemGroup>

@@ -212,9 +212,78 @@ namespace BrynzaAPI
             On.RoR2.BlastAttack.BlastAttackDamageInfo.Write += BlastAttackDamageInfo_Write;
             On.RoR2.BlastAttack.BlastAttackDamageInfo.Read += BlastAttackDamageInfo_Read;
             //IL.RoR2.Util.BuildPrefabTransformPath += Util_BuildPrefabTransformPath;
+            IL.RoR2.AimAnimator.UpdateAnimatorParameters += AimAnimator_UpdateAnimatorParameters;
+            IL.RoR2.PlayerCharacterMasterController.PollButtonInput += PlayerCharacterMasterController_PollButtonInput;
             harmonyPatcher = new Harmony(ModGuid);
             harmonyPatcher.CreateClassProcessor(typeof(Patches)).Patch();
             RoR2Application.onLoadFinished += OnRoR2Loaded;
+        }
+
+        private void PlayerCharacterMasterController_PollButtonInput(ILContext il)
+        {
+            ILCursor c = new ILCursor(il);
+            if (
+                c.TryGotoNext(MoveType.Before,
+                    x => x.MatchLdloc(16),
+                    x => x.MatchStloc(6)
+                ))
+            {
+                c.Index++;
+                Instruction instruction = c.Next;
+                Instruction instruction2 = c.Next.Next;
+                c.Emit(OpCodes.Ldarg_0);
+                c.EmitDelegate(GetFlag);
+                bool GetFlag(PlayerCharacterMasterController playerCharacterMasterController) => playerCharacterMasterController.body.HasModdedBodyFlag(Assets.SprintAllTime);
+                c.Emit(OpCodes.Brfalse_S, instruction);
+                c.Emit(OpCodes.Pop);
+                c.Emit(OpCodes.Ldloc, 13);
+                c.Emit(OpCodes.Ldc_I4, 18);
+                //bool GetButtonInput(Player player, int i) => player.GetButton(i);
+                c.Emit(OpCodes.Callvirt, AccessTools.Method(typeof(Player), nameof(Player.GetButton), [typeof(int)]));
+                //c.Emit(OpCodes.Stloc, 6);
+                //c.Emit(OpCodes.Br, instruction2);
+            }
+            else
+            {
+                Log.LogError(il.Method.Name + " IL Hook 1 failed!");
+            }
+        }
+
+        private void AimAnimator_UpdateAnimatorParameters(ILContext il)
+        {
+            ILCursor c = new ILCursor(il);
+            if (
+                c.TryGotoNext(MoveType.Before,
+                    x => x.MatchLdfld<AimAnimator>(nameof(AimAnimator.pitchClipCycleEnd)),
+                    x => x.MatchLdcR4(0f)
+                ))
+            {
+                c.Index++;
+                c.Remove();
+                c.Emit(OpCodes.Ldarg_0);
+                c.EmitDelegate(SetPitch);
+                float SetPitch(AimAnimator aimAnimator) => aimAnimator.GetPitchClipCycleStart();
+            }
+            else
+            {
+                Log.LogError(il.Method.Name + " IL Hook 1 failed!");
+            }
+            if (
+                c.TryGotoNext(MoveType.Before,
+                    x => x.MatchLdcR4(0f),
+                    x => x.MatchLdarg(0),
+                    x => x.MatchLdfld<AimAnimator>(nameof(AimAnimator.yawClipCycleEnd))
+                ))
+            {
+                c.Remove();
+                c.Emit(OpCodes.Ldarg_0);
+                c.EmitDelegate(SetYaw);
+                float SetYaw(AimAnimator aimAnimator) => aimAnimator.GetYawClipCycleStart();
+            }
+            else
+            {
+                Log.LogError(il.Method.Name + " IL Hook 2 failed!");
+            }
         }
 
         private static void BlastAttackDamageInfo_Write(On.RoR2.BlastAttack.BlastAttackDamageInfo.orig_Write orig, ref BlastAttack.BlastAttackDamageInfo self, NetworkWriter writer)
@@ -2177,7 +2246,7 @@ private void BulletAttack_Fire(ILContext il)
                 set
                 {
                     configValue = value;
-                    configEntry.OnSettingChanged(configEntry);
+                    //configEntry.OnSettingChanged(configEntry);
                 }
             }
             public T DefaultValue
@@ -2291,7 +2360,7 @@ private void BulletAttack_Fire(ILContext il)
                     networkConfig1.Value = float.Parse(input);
                     if (!NetworkServer.active)
                     {
-                        networkConfig1.configEntry.OnSettingChanged(networkConfig1.configEntry);
+                        //networkConfig1.configEntry.OnSettingChanged(networkConfig1.configEntry);
                         networkConfig1.configEntry.Value += 1f;
                         networkConfig1.configEntry.Value -= 1f;
                     }
@@ -3286,6 +3355,10 @@ private void BulletAttack_Fire(ILContext il)
         public static Vector3 GetBonusForce(this BulletAttack bulletAttack) => BrynzaInterop.GetBonusForce(bulletAttack);
         public static void SetNoWeaponIfOwner(this BulletAttack bulletAttack, bool value) => BrynzaInterop.SetNoWeaponIfOwner(bulletAttack, value);
         public static bool GetNoWeaponIfOwner(this BulletAttack bulletAttack) => BrynzaInterop.GetNoWeaponIfOwner(bulletAttack);
+        public static float GetYawClipCycleStart(this AimAnimator aimAnimator) => BrynzaInterop.GetYawClipCycleStart(aimAnimator);
+        public static void SetYawClipCycleStart(this AimAnimator aimAnimator, float value) => BrynzaInterop.SetYawClipCycleStart(aimAnimator, value);
+        public static float GetPitchClipCycleStart(this AimAnimator aimAnimator) => BrynzaInterop.GetPitchClipCycleStart(aimAnimator);
+        public static void SetPitchClipCycleStart(this AimAnimator aimAnimator, float value) => BrynzaInterop.SetPitchClipCycleStart(aimAnimator, value);
         public static void ResetIgnoredHealthComponents(this BulletAttack bulletAttack)
         {
             if(bulletAttack.GetIgnoredHealthComponents() != null) bulletAttack.GetIgnoredHealthComponents().Clear();

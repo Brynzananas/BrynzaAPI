@@ -29,6 +29,7 @@ internal static class Ror2Patcher
         PatchRow(assembly);
         PatchDamageInfo(assembly);
         PatchLoadoutPanelController(assembly);
+        PatchAimAnimator(assembly);
         //PatchConfigEntry(ref assembly);
     }
 
@@ -39,6 +40,15 @@ internal static class Ror2Patcher
         {
             characterBody.Fields.Add(new FieldDefinition("bapi_baseWallJumpCount", FieldAttributes.Public, assembly.MainModule.ImportReference(typeof(int))));
             characterBody.Fields.Add(new FieldDefinition("bapi_maxWallJumpCount", FieldAttributes.Public, assembly.MainModule.ImportReference(typeof(int))));
+        }
+    }
+    private static void PatchAimAnimator(AssemblyDefinition assembly)
+    {
+        TypeDefinition aimAnimator = assembly.MainModule.GetType("RoR2", "AimAnimator");
+        if (aimAnimator != null)
+        {
+            aimAnimator.Fields.Add(new FieldDefinition("bapi_pitchClipCycleStart", FieldAttributes.Public, assembly.MainModule.ImportReference(typeof(float))));
+            aimAnimator.Fields.Add(new FieldDefinition("bapi_yawClipCycleStart", FieldAttributes.Public, assembly.MainModule.ImportReference(typeof(float))));
         }
     }
     private static void PatchCharacterModel(AssemblyDefinition assembly)
