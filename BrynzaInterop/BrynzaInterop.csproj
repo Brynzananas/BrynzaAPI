@@ -7,12 +7,12 @@
 		<AllowUnsafeBlocks>true</AllowUnsafeBlocks>
 		<NoWarn>$(NoWarn);NU5104</NoWarn>
 		<RootNamespace>BrynzaAPI</RootNamespace>
-		<BaseOutputPath>C:\Users\1\AppData\Roaming\com.kesomannen.gale\riskofrain2\profiles\Default2\BepInEx\plugins\BrynzaAPI</BaseOutputPath>
+		<BaseOutputPath>D:\r2modman\RiskOfRain2\profiles\my_mod\BepInEx\plugins\BrynzaAPI</BaseOutputPath>
 	</PropertyGroup>
 
 	<ItemGroup>
 		<PackageReference Include="UnityEngine.Modules" Version="2021.3.33" />
-		<ProjectReference Include="C:\Users\1\source\repos\Brynzananas\BrynzaAPI\RoR2\RoR2.csproj" Private="false" PrivateAssets="all"/>
+		<ProjectReference Include="D:\Ror2Mods\BrynzaAPI\BrynzaAPI\RoR2\RoR2.csproj" Private="false" PrivateAssets="all"/>
 	</ItemGroup>
 
 </Project>

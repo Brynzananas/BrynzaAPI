@@ -11,5 +11,6 @@ namespace RoR2
     {
         public int bapi_maxWallJumpCount;
         public int bapi_baseWallJumpCount;
+        public Run.FixedTimeStamp bapi_lastJumpTime;
     }
 }

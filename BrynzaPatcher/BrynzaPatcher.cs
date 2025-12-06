@@ -36,10 +36,12 @@ internal static class Ror2Patcher
     private static void PatchCharacterBody(AssemblyDefinition assembly)
     {
         TypeDefinition characterBody = assembly.MainModule.GetType("RoR2", "CharacterBody");
+        TypeDefinition fixedTimeStamp = assembly.MainModule.GetType("RoR2.Run/FixedTimeStamp");
         if (characterBody != null)
         {
             characterBody.Fields.Add(new FieldDefinition("bapi_baseWallJumpCount", FieldAttributes.Public, assembly.MainModule.ImportReference(typeof(int))));
             characterBody.Fields.Add(new FieldDefinition("bapi_maxWallJumpCount", FieldAttributes.Public, assembly.MainModule.ImportReference(typeof(int))));
+            characterBody.Fields.Add(new FieldDefinition("bapi_lastJumpTime", FieldAttributes.Public, assembly.MainModule.ImportReference(fixedTimeStamp)));
         }
     }
     private static void PatchAimAnimator(AssemblyDefinition assembly)

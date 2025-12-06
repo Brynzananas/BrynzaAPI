@@ -69,7 +69,6 @@ namespace BrynzaAPI
     [BepInDependency(R2API.R2API.PluginGUID, R2API.R2API.PluginVersion)]
     [BepInDependency(R2API.CharacterBodyAPI.PluginGUID)]
     [BepInDependency(R2API.DamageAPI.PluginGUID)]
-    [BepInDependency(R2API.ProcTypeAPI.PluginGUID)]
     [BepInDependency(NetworkingAPI.PluginGUID)]
     [NetworkCompatibility(CompatibilityLevel.EveryoneMustHaveMod, VersionStrictness.EveryoneNeedSameModVersion)]
     [System.Serializable]
@@ -177,8 +176,8 @@ namespace BrynzaAPI
             On.RoR2.RoR2Application.OnLoad += RoR2Application_OnLoad;
             On.RoR2.UI.CharacterSelectController.OnEnable += CharacterSelectController_OnEnable;
             IL.RoR2.FogDamageController.MyFixedUpdate += FogDamageController_MyFixedUpdate;
-            On.RoR2.HurtBox.OnEnable += HurtBox_OnEnable;
-            On.RoR2.HurtBox.OnDisable += HurtBox_OnDisable;
+            //On.RoR2.HurtBox.OnEnable += HurtBox_OnEnable;
+            //On.RoR2.HurtBox.OnDisable += HurtBox_OnDisable;
             IL.RoR2.HealthComponent.TakeDamageProcess += HealthComponent_TakeDamageProcess;
             IL.EntityStates.GenericCharacterMain.ProcessJump_bool += GenericCharacterMain_ProcessJump_bool;
             IL.RoR2.CharacterMotor.OnLanded += CharacterMotor_OnLanded;
@@ -214,9 +213,76 @@ namespace BrynzaAPI
             //IL.RoR2.Util.BuildPrefabTransformPath += Util_BuildPrefabTransformPath;
             IL.RoR2.AimAnimator.UpdateAnimatorParameters += AimAnimator_UpdateAnimatorParameters;
             IL.RoR2.PlayerCharacterMasterController.PollButtonInput += PlayerCharacterMasterController_PollButtonInput;
+            On.RoR2.CharacterBody.TriggerJumpEventGlobally += CharacterBody_TriggerJumpEventGlobally;
+            RoR2Application.onLoadFinished += OnRoR2Loaded;
             harmonyPatcher = new Harmony(ModGuid);
             harmonyPatcher.CreateClassProcessor(typeof(Patches)).Patch();
-            RoR2Application.onLoadFinished += OnRoR2Loaded;
+        }
+
+        private void UnsetHooks()
+        {
+            if (!hooksEnabled) return;
+            hooksEnabled = false;
+            IL.RoR2.Skills.SkillDef.OnFixedUpdate -= SkillDef_OnFixedUpdate;
+            IL.RoR2.Skills.SkillDef.OnExecute -= SkillDef_OnExecute;
+            IL.RoR2.UI.CrosshairManager.UpdateCrosshair -= CrosshairManager_UpdateCrosshair1;
+            IL.RoR2.CameraModes.CameraModePlayerBasic.UpdateInternal -= CameraModePlayerBasic_UpdateInternal;
+            IL.RoR2.CameraModes.CameraModePlayerBasic.CollectLookInputInternal -= CameraModePlayerBasic_CollectLookInputInternal;
+            On.EntityStates.GenericCharacterMain.HandleMovements -= GenericCharacterMain_HandleMovements;
+            IL.RoR2.GenericSkill.Awake -= GenericSkill_Awake;
+            IL.RoR2.CharacterMotor.PreMove -= CharacterMotor_PreMove;
+            IL.RoR2.Projectile.ProjectileExplosion.DetonateServer -= ProjectileExplosion_DetonateServer;
+            IL.EntityStates.GenericCharacterMain.ApplyJumpVelocity -= GenericCharacterMain_ApplyJumpVelocity;
+            On.RoR2.GlobalEventManager.OnCharacterHitGroundServer -= GlobalEventManager_OnCharacterHitGroundServer;
+            ContentManager.collectContentPackProviders -= ContentManager_collectContentPackProviders;
+            On.RoR2.Run.Start -= Run_Start;
+            On.RoR2.RoR2Application.OnLoad -= RoR2Application_OnLoad;
+            On.RoR2.UI.CharacterSelectController.OnEnable -= CharacterSelectController_OnEnable;
+            IL.RoR2.FogDamageController.MyFixedUpdate -= FogDamageController_MyFixedUpdate;
+            IL.RoR2.HealthComponent.TakeDamageProcess -= HealthComponent_TakeDamageProcess;
+            IL.EntityStates.GenericCharacterMain.ProcessJump_bool -= GenericCharacterMain_ProcessJump_bool;
+            IL.RoR2.CharacterMotor.OnLanded -= CharacterMotor_OnLanded;
+            IL.RoR2.CharacterBody.RecalculateStats -= CharacterBody_RecalculateStats;
+            On.RoR2.BulletAttack.ProcessHit -= BulletAttack_ProcessHit;
+            On.RoR2.UI.LoadoutPanelController.Awake -= LoadoutPanelController_Awake;
+            IL.RoR2.UI.LoadoutPanelController.Row.FromSkillSlot -= Row_FromSkillSlot;
+            On.RoR2.UI.LoadoutPanelController.DestroyRows -= LoadoutPanelController_DestroyRows;
+            On.RoR2.UI.LoadoutPanelController.Row.FinishSetup -= Row_FinishSetup;
+            IL.RoR2.UI.LoadoutPanelController.Row.FromSkin -= Row_FromSkin;
+            On.RoR2.UI.LoadoutPanelController.Rebuild -= LoadoutPanelController_Rebuild;
+            On.RoR2.CharacterModel.UpdateRendererMaterials -= CharacterModel_UpdateRendererMaterials;
+            IL.RoR2.CharacterModel.UpdateMaterials -= CharacterModel_UpdateMaterials;
+            IL.RoR2.BulletAttack.DefaultHitCallbackImplementation -= BulletAttack_DefaultHitCallbackImplementation;
+            On.RoR2.NetworkExtensions.Write_NetworkWriter_DamageInfo -= NetworkExtensions_Write_NetworkWriter_DamageInfo;
+            On.RoR2.NetworkExtensions.ReadDamageInfo -= NetworkExtensions_ReadDamageInfo;
+            IL.RoR2.BlastAttack.HandleHits -= BlastAttack_HandleHits;
+            IL.RoR2.BlastAttack.PerformDamageServer -= BlastAttack_PerformDamageServer;
+            On.RoR2.BlastAttack.BlastAttackDamageInfo.Write -= BlastAttackDamageInfo_Write;
+            On.RoR2.BlastAttack.BlastAttackDamageInfo.Read -= BlastAttackDamageInfo_Read;
+            IL.RoR2.AimAnimator.UpdateAnimatorParameters -= AimAnimator_UpdateAnimatorParameters;
+            IL.RoR2.PlayerCharacterMasterController.PollButtonInput -= PlayerCharacterMasterController_PollButtonInput;
+            On.RoR2.CharacterBody.TriggerJumpEventGlobally -= CharacterBody_TriggerJumpEventGlobally;
+            RoR2Application.onLoadFinished -= OnRoR2Loaded;
+        }
+        private bool hooksEnabled = false;
+        private void OnRoR2Loaded()
+        {
+            StartCoroutine(AddLanguageTokens());
+        }
+        private IEnumerator AddLanguageTokens()
+        {
+            while (LanguageTokensToAddOnLoad.languageTokensToAddOnLoad.Count > 0)
+            {
+                LanguageTokensToAddOnLoad.languageTokensToAddOnLoad[0].Dispose();
+                yield return null;
+            }
+            yield break;
+        }
+
+        private void CharacterBody_TriggerJumpEventGlobally(On.RoR2.CharacterBody.orig_TriggerJumpEventGlobally orig, CharacterBody self)
+        {
+            orig(self);
+            self.SetLastJumpTime(Run.FixedTimeStamp.now);
         }
 
         private void PlayerCharacterMasterController_PollButtonInput(ILContext il)
@@ -737,73 +803,9 @@ namespace BrynzaAPI
             }
         }*/
 
-        private void UnsetHooks()
-        {
-            if (!hooksEnabled) return;
-            hooksEnabled = false;
-            IL.RoR2.Skills.SkillDef.OnFixedUpdate -= SkillDef_OnFixedUpdate;
-            IL.RoR2.Skills.SkillDef.OnExecute -= SkillDef_OnExecute;
-            IL.RoR2.UI.CrosshairManager.UpdateCrosshair -= CrosshairManager_UpdateCrosshair1;
-            IL.RoR2.CameraModes.CameraModePlayerBasic.UpdateInternal -= CameraModePlayerBasic_UpdateInternal;
-            IL.RoR2.CameraModes.CameraModePlayerBasic.CollectLookInputInternal -= CameraModePlayerBasic_CollectLookInputInternal;
-            On.EntityStates.GenericCharacterMain.HandleMovements += GenericCharacterMain_HandleMovements;
-            IL.RoR2.GenericSkill.Awake -= GenericSkill_Awake;
-            On.RoR2.CharacterBody.RecalculateStats -= CharacterBody_RecalculateStats1;
-            //On.RoR2.GenericSkill.RecalculateMaxStock += GenericSkill_RecalculateMaxStock;
-            //On.RoR2.GenericSkill.CalculateFinalRechargeInterval += GenericSkill_CalculateFinalRechargeInterval1;
-            //IL.RoR2.GenericSkill.RecalculateMaxStock += GenericSkill_RecalculateMaxStock1;
-            //IL.RoR2.GenericSkill.CalculateFinalRechargeInterval += GenericSkill_CalculateFinalRechargeInterval;
-            IL.RoR2.CharacterMotor.PreMove -= CharacterMotor_PreMove;
-            IL.RoR2.Projectile.ProjectileExplosion.DetonateServer -= ProjectileExplosion_DetonateServer;
-            IL.EntityStates.GenericCharacterMain.ApplyJumpVelocity -= GenericCharacterMain_ApplyJumpVelocity;
-            //IL.RoR2.BulletAttack.Fire += BulletAttack_Fire;
-            On.RoR2.GlobalEventManager.OnCharacterHitGroundServer -= GlobalEventManager_OnCharacterHitGroundServer;
-            ContentManager.collectContentPackProviders -= ContentManager_collectContentPackProviders;
-            On.RoR2.Run.Start -= Run_Start;
-            On.RoR2.RoR2Application.OnLoad -= RoR2Application_OnLoad;
-            On.RoR2.UI.CharacterSelectController.OnEnable -= CharacterSelectController_OnEnable;
-            IL.RoR2.FogDamageController.MyFixedUpdate -= FogDamageController_MyFixedUpdate;
-            On.RoR2.HurtBox.OnEnable -= HurtBox_OnEnable;
-            On.RoR2.HurtBox.OnDisable -= HurtBox_OnDisable;
-            IL.RoR2.HealthComponent.TakeDamageProcess -= HealthComponent_TakeDamageProcess;
-            IL.EntityStates.GenericCharacterMain.ProcessJump_bool -= GenericCharacterMain_ProcessJump_bool;
-            IL.RoR2.CharacterMotor.OnLanded -= CharacterMotor_OnLanded;
-            IL.RoR2.CharacterBody.RecalculateStats -= CharacterBody_RecalculateStats;
-            //IL.RoR2.GenericSkill.SetBonusStockFromBody += GenericSkill_SetBonusStockFromBody;
-            //On.RoR2.GenericSkill.CanApplyAmmoPack += GenericSkill_CanApplyAmmoPack;
-            //IL.RoR2.CameraModes.CameraModePlayerBasic.UpdateCrosshair += CameraModePlayerBasic_UpdateCrosshair;
-            //IL.RoR2.CameraRigController.LateUpdate += CameraRigController_LateUpdate;
-            //IL.RoR2.CameraRigController.SetCameraState += CameraRigController_SetCameraState;
-            //On.RoR2.CameraRigController.SetCameraState += CameraRigController_SetCameraState1;
-            On.RoR2.BulletAttack.ProcessHit -= BulletAttack_ProcessHit;
-            On.RoR2.UI.LoadoutPanelController.Awake -= LoadoutPanelController_Awake;
-            IL.RoR2.UI.LoadoutPanelController.Row.FromSkillSlot -= Row_FromSkillSlot;
-            On.RoR2.UI.LoadoutPanelController.DestroyRows -= LoadoutPanelController_DestroyRows;
-            On.RoR2.UI.LoadoutPanelController.Row.FinishSetup -= Row_FinishSetup;
-            IL.RoR2.UI.LoadoutPanelController.Row.FromSkin -= Row_FromSkin;
-            On.RoR2.UI.LoadoutPanelController.Rebuild -= LoadoutPanelController_Rebuild;
-            //IL.RoR2.HealthComponent.Heal -= HealthComponent_Heal;
-            RoR2Application.onLoadFinished -= OnRoR2Loaded;
-        }
-        private bool hooksEnabled = false;
-        private void OnRoR2Loaded()
-        {
-            StartCoroutine(AddLanguageTokens());
-        }
-        private IEnumerator AddLanguageTokens()
-        {
-            while (LanguageTokensToAddOnLoad.languageTokensToAddOnLoad.Count > 0)
-            {
-                LanguageTokensToAddOnLoad.languageTokensToAddOnLoad[0].Dispose();
-                yield return null;
-            }
-            yield break;
-        }
-        
         private static void LoadoutPanelController_Rebuild(On.RoR2.UI.LoadoutPanelController.orig_Rebuild orig, LoadoutPanelController self)
         {
             orig(self);
-            Log.LogMessage("Test");
             int rowsCount = Section.sections.Count;
             if (rowsCount <= 0) return;
             if (rowsCount == 1)
@@ -814,16 +816,14 @@ namespace BrynzaAPI
             else
             {
                 LayoutElement layoutElement = loadoutSectionHolder ? loadoutSectionHolder.GetComponent<LayoutElement>() : null;
-                Log.LogMessage(layoutElement);
                 if (layoutElement != null)
                 {
-                    Log.LogMessage("This should work!");
                     layoutElement.minHeight = 32f;
                     layoutElement.preferredHeight = 48f;
+                    layoutElement.flexibleHeight = 0f;
                 }
                 Utils.SelectRowsSection(LoadoutMainSectionToken);
             }
-
         }
 
         private static void Row_FromSkin(ILContext il)
@@ -949,6 +949,7 @@ namespace BrynzaAPI
                 LayoutElement layoutElement = loadoutSectionHolder.AddComponent<LayoutElement>();
                 layoutElement.minHeight = 32f;
                 layoutElement.preferredHeight = 48f;
+                layoutElement.flexibleHeight = 0f;
             }
 
         }
@@ -2723,7 +2724,6 @@ private void BulletAttack_Fire(ILContext il)
             {
                 CharacterBody body = collider.GetComponent<CharacterBody>();
                 if (!body || li.Contains(body)) continue;
-                Log.LogMessage(body);
                 li.Add(body);
                 bool flag = false;
                 switch (rocketJumpFiltering)
@@ -3359,6 +3359,8 @@ private void BulletAttack_Fire(ILContext il)
         public static void SetYawClipCycleStart(this AimAnimator aimAnimator, float value) => BrynzaInterop.SetYawClipCycleStart(aimAnimator, value);
         public static float GetPitchClipCycleStart(this AimAnimator aimAnimator) => BrynzaInterop.GetPitchClipCycleStart(aimAnimator);
         public static void SetPitchClipCycleStart(this AimAnimator aimAnimator, float value) => BrynzaInterop.SetPitchClipCycleStart(aimAnimator, value);
+        public static Run.FixedTimeStamp GetLastJumpTime(this CharacterBody characterBody) => BrynzaInterop.GetLastJumpTime(characterBody);
+        public static void SetLastJumpTime(this CharacterBody characterBody, Run.FixedTimeStamp value) => BrynzaInterop.SetLastJumpTime(characterBody, value);
         public static void ResetIgnoredHealthComponents(this BulletAttack bulletAttack)
         {
             if(bulletAttack.GetIgnoredHealthComponents() != null) bulletAttack.GetIgnoredHealthComponents().Clear();
