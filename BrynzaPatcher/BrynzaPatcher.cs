@@ -41,6 +41,7 @@ internal static class Ror2Patcher
         {
             characterBody.Fields.Add(new FieldDefinition("bapi_baseWallJumpCount", FieldAttributes.Public, assembly.MainModule.ImportReference(typeof(int))));
             characterBody.Fields.Add(new FieldDefinition("bapi_maxWallJumpCount", FieldAttributes.Public, assembly.MainModule.ImportReference(typeof(int))));
+            characterBody.Fields.Add(new FieldDefinition("bapi_clientBuffs", FieldAttributes.Public, assembly.MainModule.ImportReference(typeof(int[]))));
             characterBody.Fields.Add(new FieldDefinition("bapi_lastJumpTime", FieldAttributes.Public, assembly.MainModule.ImportReference(fixedTimeStamp)));
         }
     }

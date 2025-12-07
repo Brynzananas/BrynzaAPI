@@ -124,6 +124,8 @@ public static class BrynzaInterop
     public static void SetYawClipCycleStart(AimAnimator aimAnimator, float value) => aimAnimator.bapi_yawClipCycleStart = value;
     public static Run.FixedTimeStamp GetLastJumpTime(CharacterBody characterBody) => characterBody.bapi_lastJumpTime;
     public static void SetLastJumpTime(CharacterBody characterBody, Run.FixedTimeStamp value) => characterBody.bapi_lastJumpTime = value;
+    public static void SetClientBuffs(CharacterBody characterBody, int[] value) => characterBody.bapi_clientBuffs = value;
+    public static int[] GetClientBuffs(CharacterBody characterBody) => characterBody.bapi_clientBuffs;
     //public static List<HealthComponent> GetIgnoredHealthComponents(BulletAttack bulletAttack) => bulletAttack.bapi_ignoredHealthComponentList != null ? (Enumerable.Range(0, bulletAttack.bapi_ignoredHealthComponentList.Count)
     //                         .Select(i => (bulletAttack.bapi_ignoredHealthComponentList[i] is HealthComponent ? bulletAttack.bapi_ignoredHealthComponentList[i] as HealthComponent : null))
     //                         .ToList()) : null;

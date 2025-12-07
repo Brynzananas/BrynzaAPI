@@ -40,6 +40,7 @@ using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Security;
 using System.Security.Permissions;
+using Unity;
 using UnityEngine;
 using UnityEngine.AddressableAssets;
 using UnityEngine.Events;
@@ -53,7 +54,9 @@ using static BrynzaAPI.Assets;
 using static BrynzaAPI.BrynzaAPI;
 using static BrynzaAPI.ContentPacks;
 using static BrynzaAPI.GiveItemsDelegateDef;
+using static BrynzaAPI.RocketJumpComponent;
 using static BrynzaAPI.SniperHurtboxTracker;
+using static R2API.RecalculateStatsAPI;
 using static RoR2.CameraModes.CameraModeBase;
 using static System.Collections.Specialized.BitVector32;
 
@@ -76,7 +79,7 @@ namespace BrynzaAPI
     {
         public const string ModGuid = "com.brynzananas.brynzaapi";
         public const string ModName = "Brynza API";
-        public const string ModVer = "1.4.0";
+        public const string ModVer = "1.4.1";
         public static FixedConditionalWeakTable<CharacterMotor, List<OnHitGroundServerDelegate>> onHitGroundServerDictionary = new FixedConditionalWeakTable<CharacterMotor, List<OnHitGroundServerDelegate>>();
         public delegate void OnHitGroundServerDelegate(CharacterMotor characterMotor, ref CharacterMotor.HitGroundInfo hitGroundInfo);
         public static bool riskOfOptionsLoaded = false;
@@ -93,6 +96,94 @@ namespace BrynzaAPI
         public static GameObject loadoutSectionHolder;
         public const string LoadoutMainSectionToken = "LOADOUT_SECTION_MAIN";
         public static Dictionary<ConfigFile, Dictionary<ConfigDefinition, string>> defaultConfigValues = [];
+        private static List<ExtraKeepVelocityOnMoving> GetExtraKeepVelocityOnMovingDelegates = [];
+        public delegate bool ExtraKeepVelocityOnMoving(CharacterMotor characterMotor);
+        public static event ExtraKeepVelocityOnMoving GetExtraKeepVelocityOnMoving
+        {
+            add
+            {
+                GetExtraKeepVelocityOnMovingDelegates.Add(value);
+            }
+            remove
+            {
+                GetExtraKeepVelocityOnMovingDelegates.Remove(value);
+            }
+        }
+        public static bool InvokeExtraKeepVelocityOnMovingDelegates(CharacterMotor characterMotor)
+        {
+            foreach (ExtraKeepVelocityOnMoving extraKeepVelocityOnMoving in GetExtraKeepVelocityOnMovingDelegates)
+            {
+                bool value = extraKeepVelocityOnMoving.Invoke(characterMotor);
+                if (value) return true;
+            }
+            return false;
+        }
+        private static List<ExtraStrafe> GetExtraStrafeDelegates = [];
+        public delegate bool ExtraStrafe(CharacterMotor characterMotor);
+        public static event ExtraStrafe GetExtraStrafe
+        {
+            add
+            {
+                GetExtraStrafeDelegates.Add(value);
+            }
+            remove
+            {
+                GetExtraStrafeDelegates.Remove(value);
+            }
+        }
+        public static bool InvokeExtraStrafeDelegates(CharacterMotor characterMotor)
+        {
+            foreach (ExtraStrafe extraStrafe in GetExtraStrafeDelegates)
+            {
+                bool value = extraStrafe.Invoke(characterMotor);
+                if (value) return true;
+            }
+            return false;
+        }
+        public static List<ExtraBunnyHop> GetExtraBunnyHopDelegates = [];
+        public delegate bool ExtraBunnyHop(CharacterMotor characterMotor);
+        public static event ExtraBunnyHop GetExtraBunnyHop
+        {
+            add
+            {
+                GetExtraBunnyHopDelegates.Add(value);
+            }
+            remove
+            {
+                GetExtraBunnyHopDelegates.Remove(value);
+            }
+        }
+        public static bool InvokeExtraBunnyHopDelegates(CharacterMotor characterMotor)
+        {
+            foreach (ExtraBunnyHop extraBunnyHop in GetExtraBunnyHopDelegates)
+            {
+                bool value = extraBunnyHop.Invoke(characterMotor);
+                if (value) return true;
+            }
+            return false;
+        }
+        private static List<ExtraAirControlFromVelocityAdd> GetExtraAirControlFromVelocityAddDelegates = [];
+        public delegate float ExtraAirControlFromVelocityAdd(CharacterMotor characterMotor);
+        public static event ExtraAirControlFromVelocityAdd GetExtraAirControlFromVelocityAdd
+        {
+            add
+            {
+                GetExtraAirControlFromVelocityAddDelegates.Add(value);
+            }
+            remove
+            {
+                GetExtraAirControlFromVelocityAddDelegates.Remove(value);
+            }
+        }
+        public static float InvokeExtraAirControlFromVelocityAddDelegates(CharacterMotor characterMotor)
+        {
+            float value = 0f;
+            foreach (ExtraAirControlFromVelocityAdd extraAirControlFromVelocityAdd in GetExtraAirControlFromVelocityAddDelegates)
+            {
+                value += extraAirControlFromVelocityAdd.Invoke(characterMotor);
+            }
+            return value;
+        }
         private static bool takeServerConfigValues
         {
             get { return (Run.instance || SceneManager.GetActiveScene().name == "lobby"); }
@@ -117,6 +208,7 @@ namespace BrynzaAPI
             AirControlFromVelocityAddBuff = Utils.CreateBuff("bapiAirControlFromVelocityAdd", null, Color.white, false, false, false, true, true);
             NetworkingAPI.RegisterMessageType<SyncConfigsNetMessage>();
             NetworkingAPI.RegisterMessageType<RequestSyncConfigsNetMessage>();
+            NetworkingAPI.RegisterMessageType<RocketJumpComponent.RocketJumpMessage>();
             riskOfOptionsLoaded = BepInEx.Bootstrap.Chainloader.PluginInfos.ContainsKey(RiskOfOptions.PluginInfo.PLUGIN_GUID);
             loadoutSectionButton = PrefabAPI.InstantiateClone(Addressables.LoadAssetAsync<GameObject>("RoR2/Base/UI/CharacterSelectUIMain.prefab").WaitForCompletion(), "LoadoutSectionButton", false).transform.Find("SafeArea/LeftHandPanel (Layer: Main)/SurvivorInfoPanel, Active (Layer: Secondary)/SubheaderPanel (Overview, Skills, Loadout)/GenericMenuButton (Overview)").gameObject.GetComponent<HGButton>();
             RectTransform rectTransform = loadoutSectionButton.gameObject.GetComponent<RectTransform>();
@@ -214,9 +306,15 @@ namespace BrynzaAPI
             IL.RoR2.AimAnimator.UpdateAnimatorParameters += AimAnimator_UpdateAnimatorParameters;
             IL.RoR2.PlayerCharacterMasterController.PollButtonInput += PlayerCharacterMasterController_PollButtonInput;
             On.RoR2.CharacterBody.TriggerJumpEventGlobally += CharacterBody_TriggerJumpEventGlobally;
+            On.RoR2.CharacterBody.Awake += CharacterBody_Awake;
             RoR2Application.onLoadFinished += OnRoR2Loaded;
             harmonyPatcher = new Harmony(ModGuid);
             harmonyPatcher.CreateClassProcessor(typeof(Patches)).Patch();
+        }
+        private void CharacterBody_Awake(On.RoR2.CharacterBody.orig_Awake orig, CharacterBody self)
+        {
+            orig(self);
+            self.SetClientBuffs(BuffCatalog.GetPerBuffBuffer<int>());
         }
 
         private void UnsetHooks()
@@ -1399,7 +1497,30 @@ private void GenericSkill_SetBonusStockFromBody(ILContext il)
             }
             else
             {
-                Log.LogError(il.Method.Name + " IL Hook failed!");
+                Log.LogError(il.Method.Name + " IL Hook 1 failed!");
+            }
+            if (
+                c.TryGotoNext(MoveType.After,
+                x => x.MatchLdloc(3),
+                x => x.MatchStloc(0)
+                ))
+            {
+                c.Emit(OpCodes.Ldarg_0);
+                c.Emit(OpCodes.Ldloc_3);
+                c.EmitDelegate(InvokeOnLandedInterfaces);
+                void InvokeOnLandedInterfaces(CharacterMotor characterMotor, CharacterMotor.HitGroundInfo hitGroundInfo)
+                {
+                    IOnGroundHit[] onGroundHits = characterMotor.gameObject.GetComponents<IOnGroundHit>();
+                    for (int i = 0; i < onGroundHits.Length; i++)
+                    {
+                        IOnGroundHit onGroundHit = onGroundHits[i];
+                        onGroundHit.OnGroundHit(characterMotor, hitGroundInfo);
+                    }
+                }
+            }
+            else
+            {
+                Log.LogError(il.Method.Name + " IL Hook 2 failed!");
             }
         }
         private static void GenericCharacterMain_ProcessJump_bool(ILContext il)
@@ -1801,7 +1922,7 @@ private void BulletAttack_Fire(ILContext il)
                 c.Emit(OpCodes.Ldarg_1);
                 c.EmitDelegate<Action<CharacterMotor, Vector3, float>>(delegate (CharacterMotor cb, Vector3 wishDirection, float deltaTime)
                 {
-                    if (cb.GetStrafe())
+                    if (cb.GetStrafeEffective())
                     {
                         var currentVelocity = new Vector3(cb.velocity.x, 0, cb.velocity.z);
                         var dotProduct = Vector3.Dot(currentVelocity.normalized, wishDirection);
@@ -1834,7 +1955,7 @@ private void BulletAttack_Fire(ILContext il)
                 Vector3 sus(Vector3 wishDirection, Vector3 vector31, CharacterMotor characterMotor)
                 {
                     Vector3 velocity = characterMotor.velocity;
-                    if (!characterMotor.isGrounded && characterMotor.GetKeepVelocityOnMoving())
+                    if (!characterMotor.isGrounded && characterMotor.GetKeepVelocityOnMovingEffective())
                     {
                         if (characterMotor.isFlying)
                         {
@@ -1913,7 +2034,7 @@ private void BulletAttack_Fire(ILContext il)
                 c.EmitDelegate(amogus);
                 float amogus(CharacterMotor characterMotor)
                 {
-                    float magnitude = characterMotor.GetAirControlFromVelocityAdd();
+                    float magnitude = characterMotor.GetAirControlFromVelocityAddEffective();
                     magnitude += characterMotor.body ? characterMotor.body.GetBuffCount(Assets.AirControlFromVelocityAddBuff) : 0;
                     if (magnitude == 0) return 0f;
                     Vector3 vector3 = characterMotor.velocity;
@@ -2675,6 +2796,10 @@ private void BulletAttack_Fire(ILContext il)
     {
         public void OnGroundHitServer(CharacterBody characterBody, CharacterMotor.HitGroundInfo hitGroundInfo);
     }
+    public interface IOnGroundHit
+    {
+        public void OnGroundHit(CharacterMotor characterMotor, CharacterMotor.HitGroundInfo hitGroundInfo);
+    }
     public class RemoveBuffsOnGroundHitServer : MonoBehaviour, IOnGroundHitServer
     {
         public List<BuffDef> buffDefs = [];
@@ -2710,8 +2835,11 @@ private void BulletAttack_Fire(ILContext il)
         public AnimationCurve falloff = AnimationCurve.EaseInOut(0f, 1f, 1f, 1f);
         public AnimationCurve verticalForceReduction = AnimationCurve.EaseInOut(0f, 0f, 1f, 1f);
         public float radiusMultiplier = 1.25f;
+        [Obsolete("Please use physForceFlags instead")]
         public bool alwaysApply = true;
+        [Obsolete("Please use physForceFlags instead")]
         public bool disableAirControl = true;
+        public PhysForceFlags physForceFlags = PhysForceFlags.disableAirControlUntilCollision | PhysForceFlags.ignoreGroundStick;
         public List<BuffDef> buffsWhileMidair = new List<BuffDef>();
         public RocketJumpFiltering rocketJumpFiltering;
         public delegate void OnRocketJumpApplied(RocketJumpComponent rocketJumpComponent, CharacterBody characterBody, Vector3 force);
@@ -2749,18 +2877,29 @@ private void BulletAttack_Fire(ILContext il)
                 vector3 = vector3.normalized * force * falloffIntensity;
                 if (body.characterMotor)
                 {
-                    if (body.characterMotor.velocity.y < 0f)
+                    PhysForceInfo physForceInfo2 = new PhysForceInfo
                     {
-                        PhysForceInfo physForceInfo = new PhysForceInfo
+                        force = vector3,
+                        _flags = (int)physForceFlags
+                    };
+                    if (body.hasAuthority)
+                    {
+                        if (body.characterMotor.velocity.y < 0f)
                         {
-                            force = new Vector3(0f, -body.characterMotor.velocity.y, 0f),
-                            disableAirControlUntilCollision = false,
-                            ignoreGroundStick = true,
-                            massIsOne = true,
-                        };
-                        body.characterMotor.ApplyForceImpulse(physForceInfo);
+                            PhysForceInfo physForceInfo = new PhysForceInfo
+                            {
+                                force = new Vector3(0f, -body.characterMotor.velocity.y, 0f),
+                                _flags = (int)(PhysForceFlags.massIsOne | PhysForceFlags.ignoreGroundStick)
+                            };
+                            body.characterMotor.ApplyForceImpulse(physForceInfo);
+                        }
+                        
+                        body.characterMotor.ApplyForceImpulse(physForceInfo2);
                     }
-                    body.characterMotor.ApplyForce(vector3, alwaysApply, disableAirControl);
+                    else
+                    {
+                        new RocketJumpMessage(body.netId, physForceInfo2).Send(NetworkDestination.Clients);
+                    }
                 }
                 else if (body.rigidbody)
                 {
@@ -2775,6 +2914,49 @@ private void BulletAttack_Fire(ILContext il)
                     foreach (BuffDef buffDef in buffsWhileMidair) body.AddBuff(buffDef);
                 }
                 onRocketJumpApplied?.InvokeAll(this, body, vector3);
+            }
+        }
+        public class RocketJumpMessage : INetMessage
+        {
+            public NetworkInstanceId networkInstanceId;
+            public PhysForceInfo physForceInfo;
+            public RocketJumpMessage()
+            {
+
+            }
+            public RocketJumpMessage(NetworkInstanceId networkInstanceId, PhysForceInfo physForceInfo)
+            {
+                this.networkInstanceId = networkInstanceId;
+                this.physForceInfo = physForceInfo;
+            }
+            public void Deserialize(NetworkReader reader)
+            {
+                networkInstanceId = reader.ReadNetworkId();
+                physForceInfo = GeneratedNetworkCode._ReadPhysForceInfo_None(reader);
+            }
+
+            public void OnReceived()
+            {
+                GameObject gameObject = Util.FindNetworkObject(networkInstanceId);
+                if (!gameObject) return;
+                CharacterMotor characterMotor = gameObject.GetComponent<CharacterMotor>();
+                if (!characterMotor || !characterMotor.hasAuthority) return;
+                if (characterMotor.velocity.y < 0f)
+                {
+                    PhysForceInfo physForceInfo = new PhysForceInfo
+                    {
+                        force = new Vector3(0f, -characterMotor.velocity.y, 0f),
+                        _flags = (int)(PhysForceFlags.massIsOne | PhysForceFlags.ignoreGroundStick)
+                    };
+                    characterMotor.ApplyForceImpulse(physForceInfo);
+                }
+                characterMotor.ApplyForceImpulse(this.physForceInfo);
+            }
+
+            public void Serialize(NetworkWriter writer)
+            {
+                writer.Write(networkInstanceId);
+                GeneratedNetworkCode._WritePhysForceInfo_None(writer, physForceInfo);
             }
         }
         public enum RocketJumpFiltering
@@ -3021,6 +3203,7 @@ private void BulletAttack_Fire(ILContext il)
             onSniperHurtboxAdded -= UpdateTracker;
             onSniperHurtboxRemoved -= UpdateTracker;
         }
+
     }
     public static class Utils
     {
@@ -3293,21 +3476,24 @@ private void BulletAttack_Fire(ILContext il)
         /// Set Character Motor movement to take current velocity.
         /// </summary>
         public static void SetKeepVelocityOnMoving(this CharacterMotor characterMotor, bool flag) => BrynzaInterop.SetKeepVelocityOnMoving(characterMotor, flag);
-        public static bool GetKeepVelocityOnMoving(this CharacterMotor characterMotor) => BrynzaInterop.GetKeepVelocityOnMoving(characterMotor) || (characterMotor && characterMotor.body && characterMotor.body.GetBuffCount(Assets.KeepVelocityBuff) > 0);
+        public static bool GetKeepVelocityOnMovingEffective(this CharacterMotor characterMotor) => characterMotor.GetKeepVelocityOnMoving() || (characterMotor && characterMotor.body && characterMotor.body.GetBuffCount(Assets.KeepVelocityBuff) > 0) || InvokeExtraKeepVelocityOnMovingDelegates(characterMotor);
+        public static bool GetKeepVelocityOnMoving(this CharacterMotor characterMotor) => BrynzaInterop.GetKeepVelocityOnMoving(characterMotor);
         /// <summary>
         /// Set Character Motor to have consistent air acceleration.
         /// </summary>
         public static void SetConsistentAcceleration(this CharacterMotor characterMotor, float value) => BrynzaInterop.SetConsistentAcceleration(characterMotor, value);
         public static float GetConsistentAcceleration(this CharacterMotor characterMotor) => BrynzaInterop.GetConsistentAcceleration(characterMotor);
+        public static float GetAirControlFromVelocityAddEffective(this CharacterMotor characterMotor) => characterMotor.GetAirControlFromVelocityAdd() + InvokeExtraAirControlFromVelocityAddDelegates(characterMotor);
         public static float GetAirControlFromVelocityAdd(this CharacterMotor characterMotor) => BrynzaInterop.GetAirControlFromVelocityAdd(characterMotor);
         public static void SetAirControlFromVelocityAdd(this CharacterMotor characterMotor, float value) => BrynzaInterop.SetAirControlFromVelocityAdd(characterMotor, value);
         [Obsolete("Doesn't work as intended", true)]
         public static void SetFluidMaxDistanceDelta(this CharacterMotor characterMotor, bool flag) => BrynzaInterop.SetFluidMaxDistanceDelta(characterMotor, flag);
         public static bool GetFluidMaxDistanceDelta(this CharacterMotor characterMotor) => BrynzaInterop.GetFluidMaxDistanceDelta(characterMotor);
         public static void SetStrafe(this CharacterMotor characterMotor, bool flag) => BrynzaInterop.SetStrafe(characterMotor, flag);
-        public static bool GetStrafe(this CharacterMotor characterMotor) => (BrynzaInterop.GetStrafe(characterMotor)) || (characterMotor && characterMotor.body && characterMotor.body.GetBuffCount(Assets.StrafeBuff) > 0);
+        public static bool GetStrafe(this CharacterMotor characterMotor) => BrynzaInterop.GetStrafe(characterMotor);
+        public static bool GetStrafeEffective(this CharacterMotor characterMotor) => characterMotor.GetStrafe() || (characterMotor && characterMotor.body && characterMotor.body.GetBuffCount(Assets.StrafeBuff) > 0) || InvokeExtraStrafeDelegates(characterMotor);
         public static void SetBunnyHop(this CharacterMotor characterMotor, bool flag) => BrynzaInterop.SetBunnyHop(characterMotor, flag);
-        public static bool GetBunnyHop(this CharacterMotor characterMotor) => (BrynzaInterop.GetBunnyHop(characterMotor)) || (characterMotor && characterMotor.body && characterMotor.body.GetBuffCount(Assets.BunnyHopBuff) > 0);
+        public static bool GetBunnyHop(this CharacterMotor characterMotor) => (BrynzaInterop.GetBunnyHop(characterMotor)) || (characterMotor && characterMotor.body && characterMotor.body.GetBuffCount(Assets.BunnyHopBuff) > 0) || InvokeExtraBunnyHopDelegates(characterMotor);
         public static void SetBaseWallJumpCount(this CharacterBody characterBody, int count) => BrynzaInterop.SetBaseWallJumpCount(characterBody, count);
         public static int GetBaseWallJumpCount(this CharacterBody characterBody) => BrynzaInterop.GetBaseWallJumpCount(characterBody);
         public static void SetMaxWallJumpCount(this CharacterBody characterBody, int count) => BrynzaInterop.SetMaxWallJumpCount(characterBody, count);
@@ -3361,6 +3547,16 @@ private void BulletAttack_Fire(ILContext il)
         public static void SetPitchClipCycleStart(this AimAnimator aimAnimator, float value) => BrynzaInterop.SetPitchClipCycleStart(aimAnimator, value);
         public static Run.FixedTimeStamp GetLastJumpTime(this CharacterBody characterBody) => BrynzaInterop.GetLastJumpTime(characterBody);
         public static void SetLastJumpTime(this CharacterBody characterBody, Run.FixedTimeStamp value) => BrynzaInterop.SetLastJumpTime(characterBody, value);
+        public static int[] GetClientBuffs(this CharacterBody characterBody) => BrynzaInterop.GetClientBuffs(characterBody);
+        public static int GetClientBuffCount(this CharacterBody characterBody, BuffDef buffDef) => characterBody.GetClientBuffCount(buffDef.buffIndex);
+        public static int GetClientBuffCount(this CharacterBody characterBody, BuffIndex buffIndex) => characterBody.GetClientBuffs()[(int)buffIndex];
+        public static void SetClientBuffs(this CharacterBody characterBody, int[] value) => BrynzaInterop.SetClientBuffs(characterBody, value);
+        public static void SetClientBuffCount(this CharacterBody characterBody, BuffIndex buffIndex, int count) => characterBody.GetClientBuffs()[(int)buffIndex] = count;
+        public static void SetClientBuffCount(this CharacterBody characterBody, BuffDef buffDef, int count) => characterBody.SetClientBuffCount(buffDef.buffIndex, count);
+        public static void AddClientBuff(this CharacterBody characterBody, BuffIndex buffIndex, int count = 1) => characterBody.SetClientBuffCount(buffIndex, characterBody.GetClientBuffCount(buffIndex) + count);
+        public static void AddClientBuff(this CharacterBody characterBody, BuffDef buffDef, int count = 1) => characterBody.AddClientBuff(buffDef.buffIndex, count);
+        public static void RemoveClientBuff(this CharacterBody characterBody, BuffIndex buffIndex, int count = 1) => characterBody.AddClientBuff(buffIndex, -count);
+        public static void RemoveClientBuff(this CharacterBody characterBody, BuffDef buffDef, int count = 1) => characterBody.AddClientBuff(buffDef.buffIndex, -count);
         public static void ResetIgnoredHealthComponents(this BulletAttack bulletAttack)
         {
             if(bulletAttack.GetIgnoredHealthComponents() != null) bulletAttack.GetIgnoredHealthComponents().Clear();
