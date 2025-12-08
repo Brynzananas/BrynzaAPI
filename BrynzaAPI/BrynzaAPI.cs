@@ -79,7 +79,7 @@ namespace BrynzaAPI
     {
         public const string ModGuid = "com.brynzananas.brynzaapi";
         public const string ModName = "Brynza API";
-        public const string ModVer = "1.4.1";
+        public const string ModVer = "1.5.1";
         public static FixedConditionalWeakTable<CharacterMotor, List<OnHitGroundServerDelegate>> onHitGroundServerDictionary = new FixedConditionalWeakTable<CharacterMotor, List<OnHitGroundServerDelegate>>();
         public delegate void OnHitGroundServerDelegate(CharacterMotor characterMotor, ref CharacterMotor.HitGroundInfo hitGroundInfo);
         public static bool riskOfOptionsLoaded = false;
@@ -281,12 +281,14 @@ namespace BrynzaAPI
             //IL.RoR2.CameraRigController.SetCameraState += CameraRigController_SetCameraState;
             //On.RoR2.CameraRigController.SetCameraState += CameraRigController_SetCameraState1;
             On.RoR2.BulletAttack.ProcessHit += BulletAttack_ProcessHit;
-            On.RoR2.UI.LoadoutPanelController.Awake += LoadoutPanelController_Awake;
+            //On.RoR2.UI.LoadoutPanelController.Awake += LoadoutPanelController_Awake;
             IL.RoR2.UI.LoadoutPanelController.Row.FromSkillSlot += Row_FromSkillSlot;
             On.RoR2.UI.LoadoutPanelController.DestroyRows += LoadoutPanelController_DestroyRows;
             On.RoR2.UI.LoadoutPanelController.Row.FinishSetup += Row_FinishSetup;
             IL.RoR2.UI.LoadoutPanelController.Row.FromSkin += Row_FromSkin;
-            On.RoR2.UI.LoadoutPanelController.Rebuild += LoadoutPanelController_Rebuild;
+            //On.RoR2.UI.LoadoutPanelController.Rebuild += LoadoutPanelController_Rebuild;
+            Hook hook = new Hook(typeof(LoadoutPanelController).GetMethod(nameof(LoadoutPanelController.Rebuild), BindingFlags.NonPublic | BindingFlags.Instance), typeof(BrynzaAPI).GetMethod(nameof(LoadoutPanelController_Rebuild), BindingFlags.NonPublic | BindingFlags.Static), new HookConfig { Priority = int.MaxValue});
+            Hook hook2 = new Hook(typeof(LoadoutPanelController).GetMethod(nameof(LoadoutPanelController.Awake), BindingFlags.NonPublic | BindingFlags.Instance), typeof(BrynzaAPI).GetMethod(nameof(LoadoutPanelController_Awake), BindingFlags.NonPublic | BindingFlags.Static), new HookConfig { Priority = int.MaxValue});
             //IL.RoR2.HealthComponent.Heal += HealthComponent_Heal;
             //IL.Unity.GeneratedNetworkCode._WritePhysForceInfo_None += GeneratedNetworkCode__WritePhysForceInfo_None;
             //IL.Unity.GeneratedNetworkCode._ReadPhysForceInfo_None += GeneratedNetworkCode__ReadPhysForceInfo_None;
@@ -342,12 +344,12 @@ namespace BrynzaAPI
             IL.RoR2.CharacterMotor.OnLanded -= CharacterMotor_OnLanded;
             IL.RoR2.CharacterBody.RecalculateStats -= CharacterBody_RecalculateStats;
             On.RoR2.BulletAttack.ProcessHit -= BulletAttack_ProcessHit;
-            On.RoR2.UI.LoadoutPanelController.Awake -= LoadoutPanelController_Awake;
+            //On.RoR2.UI.LoadoutPanelController.Awake -= LoadoutPanelController_Awake;
             IL.RoR2.UI.LoadoutPanelController.Row.FromSkillSlot -= Row_FromSkillSlot;
             On.RoR2.UI.LoadoutPanelController.DestroyRows -= LoadoutPanelController_DestroyRows;
             On.RoR2.UI.LoadoutPanelController.Row.FinishSetup -= Row_FinishSetup;
             IL.RoR2.UI.LoadoutPanelController.Row.FromSkin -= Row_FromSkin;
-            On.RoR2.UI.LoadoutPanelController.Rebuild -= LoadoutPanelController_Rebuild;
+            //On.RoR2.UI.LoadoutPanelController.Rebuild -= LoadoutPanelController_Rebuild;
             On.RoR2.CharacterModel.UpdateRendererMaterials -= CharacterModel_UpdateRendererMaterials;
             IL.RoR2.CharacterModel.UpdateMaterials -= CharacterModel_UpdateMaterials;
             IL.RoR2.BulletAttack.DefaultHitCallbackImplementation -= BulletAttack_DefaultHitCallbackImplementation;
@@ -914,6 +916,7 @@ namespace BrynzaAPI
             else
             {
                 LayoutElement layoutElement = loadoutSectionHolder ? loadoutSectionHolder.GetComponent<LayoutElement>() : null;
+                loadoutSectionHolder.transform.SetAsFirstSibling();
                 if (layoutElement != null)
                 {
                     layoutElement.minHeight = 32f;
@@ -1025,31 +1028,28 @@ namespace BrynzaAPI
         private static void LoadoutPanelController_Awake(On.RoR2.UI.LoadoutPanelController.orig_Awake orig, LoadoutPanelController self)
         {
             orig(self);
-            if (loadoutSectionHolder == null)
-            {
-                loadoutSectionHolder = new GameObject("SectionHolder");
-                Transform transform = loadoutSectionHolder.transform;
-                loadoutSectionHolder.transform.SetParent(self.transform);
-                transform.localScale = Vector3.one;
-                transform.localRotation = Quaternion.identity;
-                transform.localPosition = Vector3.zero;
-                RectTransform rectTransform = loadoutSectionHolder.AddComponent<RectTransform>();
-                CanvasRenderer canvasRenderer = loadoutSectionHolder.AddComponent<CanvasRenderer>();
-                canvasRenderer.cullTransparentMesh = false;
-                HorizontalLayoutGroup horizontalLayoutGroup = loadoutSectionHolder.AddComponent<HorizontalLayoutGroup>();
-                RectOffset rectOffset = horizontalLayoutGroup.padding;
-                rectOffset.right = 6;
-                rectOffset.left = 6;
-                rectOffset.top = 6;
-                rectOffset.bottom = 6;
-                horizontalLayoutGroup.childControlHeight = true;
-                horizontalLayoutGroup.childControlWidth = true;
-                LayoutElement layoutElement = loadoutSectionHolder.AddComponent<LayoutElement>();
-                layoutElement.minHeight = 32f;
-                layoutElement.preferredHeight = 48f;
-                layoutElement.flexibleHeight = 0f;
-            }
-
+            if (self.name != "LoadoutPanel" || loadoutSectionHolder) return;
+            loadoutSectionHolder = new GameObject("SectionHolder");
+            Transform transform = loadoutSectionHolder.transform;
+            loadoutSectionHolder.transform.SetParent(self.transform);
+            transform.localScale = Vector3.one;
+            transform.localRotation = Quaternion.identity;
+            transform.localPosition = Vector3.zero;
+            RectTransform rectTransform = loadoutSectionHolder.AddComponent<RectTransform>();
+            CanvasRenderer canvasRenderer = loadoutSectionHolder.AddComponent<CanvasRenderer>();
+            canvasRenderer.cullTransparentMesh = false;
+            HorizontalLayoutGroup horizontalLayoutGroup = loadoutSectionHolder.AddComponent<HorizontalLayoutGroup>();
+            RectOffset rectOffset = horizontalLayoutGroup.padding;
+            rectOffset.right = 6;
+            rectOffset.left = 6;
+            rectOffset.top = 6;
+            rectOffset.bottom = 6;
+            horizontalLayoutGroup.childControlHeight = true;
+            horizontalLayoutGroup.childControlWidth = true;
+            LayoutElement layoutElement = loadoutSectionHolder.AddComponent<LayoutElement>();
+            layoutElement.minHeight = 32f;
+            layoutElement.preferredHeight = 48f;
+            layoutElement.flexibleHeight = 0f;
         }
         private static bool BulletAttack_ProcessHit(On.RoR2.BulletAttack.orig_ProcessHit orig, BulletAttack self, ref BulletAttack.BulletHit hitInfo)
         {
