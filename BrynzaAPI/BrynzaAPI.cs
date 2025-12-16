@@ -433,6 +433,12 @@ namespace BrynzaAPI
             IL.RoR2.AimAnimator.UpdateAnimatorParameters -= AimAnimator_UpdateAnimatorParameters;
             IL.RoR2.PlayerCharacterMasterController.PollButtonInput -= PlayerCharacterMasterController_PollButtonInput;
             On.RoR2.CharacterBody.TriggerJumpEventGlobally -= CharacterBody_TriggerJumpEventGlobally;
+            On.RoR2.CharacterBody.Awake -= CharacterBody_Awake;
+            On.RoR2.EffectData.Copy -= EffectData_Copy;
+            On.RoR2.EffectData.Reset -= EffectData_Reset;
+            On.RoR2.EffectData.Serialize -= EffectData_Serialize;
+            On.RoR2.EffectData.Deserialize -= EffectData_Deserialize;
+            IL.RoR2.EffectComponent.Reset -= EffectComponent_Reset;
             RoR2Application.onLoadFinished -= OnRoR2Loaded;
         }
         private bool hooksEnabled = false;
