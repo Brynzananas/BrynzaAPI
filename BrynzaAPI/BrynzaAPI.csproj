@@ -18,6 +18,10 @@
 		<PackageReference Include="Rune580.Mods.RiskOfRain2.RiskOfOptions" Version="2.8.2" />
 		<ProjectReference Include="D:\Ror2Mods\BrynzaAPI\BrynzaAPI\BrynzaInterop\BrynzaInterop.csproj" Private="false" />
 		<ProjectReference Include="D:\Ror2Mods\BrynzaAPI\BrynzaAPI\BrynzaPatcher\BrynzaPatcher.csproj" Private="false" PrivateAssets="all" ReferenceOutputAssembly="false" />
+		<Reference Include="Brynzananas-ProjectilesConfigurator">
+			<Private>false</Private>
+			<HintPath>D:\r2modman\RiskOfRain2\profiles\my_mod\BepInEx\plugins\ProjectilesConfigurator\Debug\netstandard2.1\ProjectilesConfigurator.dll</HintPath>
+		</Reference>
 	</ItemGroup>
 
 </Project>

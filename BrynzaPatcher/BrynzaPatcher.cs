@@ -30,6 +30,7 @@ internal static class Ror2Patcher
         PatchDamageInfo(assembly);
         PatchLoadoutPanelController(assembly);
         PatchAimAnimator(assembly);
+        PatchEffectDef(assembly);
         //PatchConfigEntry(ref assembly);
     }
 
@@ -52,6 +53,14 @@ internal static class Ror2Patcher
         {
             aimAnimator.Fields.Add(new FieldDefinition("bapi_pitchClipCycleStart", FieldAttributes.Public, assembly.MainModule.ImportReference(typeof(float))));
             aimAnimator.Fields.Add(new FieldDefinition("bapi_yawClipCycleStart", FieldAttributes.Public, assembly.MainModule.ImportReference(typeof(float))));
+        }
+    }
+    private static void PatchEffectDef(AssemblyDefinition assembly)
+    {
+        TypeDefinition aimAnimator = assembly.MainModule.GetType("RoR2", "EffectData");
+        if (aimAnimator != null)
+        {
+            aimAnimator.Fields.Add(new FieldDefinition("bapi_scale", FieldAttributes.Public, assembly.MainModule.ImportReference(typeof(Vector3?))));
         }
     }
     private static void PatchCharacterModel(AssemblyDefinition assembly)
