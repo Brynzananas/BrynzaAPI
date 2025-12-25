@@ -8,5 +8,6 @@ namespace RoR2
     public class EffectData
     {
         public Vector3? bapi_scale;
+        public EffectComponent bapi_effectInstance;
     }
 }

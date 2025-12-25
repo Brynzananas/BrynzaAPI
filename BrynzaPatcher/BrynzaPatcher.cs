@@ -57,10 +57,15 @@ internal static class Ror2Patcher
     }
     private static void PatchEffectDef(AssemblyDefinition assembly)
     {
-        TypeDefinition aimAnimator = assembly.MainModule.GetType("RoR2", "EffectData");
-        if (aimAnimator != null)
+        TypeDefinition effectData = assembly.MainModule.GetType("RoR2", "EffectData");
+        TypeDefinition effectComponent = assembly.MainModule.GetType("RoR2", "EffectComponent");
+        if (effectData != null)
         {
-            aimAnimator.Fields.Add(new FieldDefinition("bapi_scale", FieldAttributes.Public, assembly.MainModule.ImportReference(typeof(Vector3?))));
+            effectData.Fields.Add(new FieldDefinition("bapi_scale", FieldAttributes.Public, assembly.MainModule.ImportReference(typeof(Vector3?))));
+            if (effectComponent != null)
+            {
+                effectData.Fields.Add(new FieldDefinition("bapi_effectInstance", FieldAttributes.Public, assembly.MainModule.ImportReference(effectComponent)));
+            }
         }
     }
     private static void PatchCharacterModel(AssemblyDefinition assembly)

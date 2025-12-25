@@ -4,6 +4,7 @@ using BepInEx.Logging;
 using BrynzaAPI.Interop;
 using EntityStates;
 using HarmonyLib;
+using HG;
 using KinematicCharacterController;
 using Mono.Cecil.Cil;
 using MonoMod.Cil;
@@ -80,7 +81,7 @@ namespace BrynzaAPI
     {
         public const string ModGuid = "com.brynzananas.brynzaapi";
         public const string ModName = "Brynza API";
-        public const string ModVer = "1.6.0";
+        public const string ModVer = "1.7.0";
         public static FixedConditionalWeakTable<CharacterMotor, List<OnHitGroundServerDelegate>> onHitGroundServerDictionary = new FixedConditionalWeakTable<CharacterMotor, List<OnHitGroundServerDelegate>>();
         public delegate void OnHitGroundServerDelegate(CharacterMotor characterMotor, ref CharacterMotor.HitGroundInfo hitGroundInfo);
         public static bool proejctilesConfiguratorEnabled { get; private set; }
@@ -212,7 +213,10 @@ namespace BrynzaAPI
             AirControlFromVelocityAddBuff = Utils.CreateBuff("bapiAirControlFromVelocityAdd", null, Color.white, false, false, false, true, true);
             NetworkingAPI.RegisterMessageType<SyncConfigsNetMessage>();
             NetworkingAPI.RegisterMessageType<RequestSyncConfigsNetMessage>();
+            NetworkingAPI.RegisterMessageType<TimeScaleChangeNetMessage>();
             NetworkingAPI.RegisterMessageType<RocketJumpComponent.RocketJumpMessage>();
+            NetworkingAPI.RegisterMessageType<RocketJumpComponent.RocketJumpServerMessage>();
+            NetworkingAPI.RegisterMessageType<RocketJumpComponent.RocketJumpFailServerMessage>();
             riskOfOptionsLoaded = BepInEx.Bootstrap.Chainloader.PluginInfos.ContainsKey(RiskOfOptions.PluginInfo.PLUGIN_GUID);
             loadoutSectionButton = PrefabAPI.InstantiateClone(Addressables.LoadAssetAsync<GameObject>("RoR2/Base/UI/CharacterSelectUIMain.prefab").WaitForCompletion(), "LoadoutSectionButton", false).transform.Find("SafeArea/LeftHandPanel (Layer: Main)/SurvivorInfoPanel, Active (Layer: Secondary)/SubheaderPanel (Overview, Skills, Loadout)/GenericMenuButton (Overview)").gameObject.GetComponent<HGButton>();
             RectTransform rectTransform = loadoutSectionButton.gameObject.GetComponent<RectTransform>();
@@ -281,7 +285,7 @@ namespace BrynzaAPI
             //IL.RoR2.GenericSkill.SetBonusStockFromBody += GenericSkill_SetBonusStockFromBody;
             //On.RoR2.GenericSkill.CanApplyAmmoPack += GenericSkill_CanApplyAmmoPack;
             //IL.RoR2.CameraModes.CameraModePlayerBasic.UpdateCrosshair += CameraModePlayerBasic_UpdateCrosshair;
-            //IL.RoR2.CameraRigController.LateUpdate += CameraRigController_LateUpdate;
+            IL.RoR2.CameraRigController.LateUpdate += CameraRigController_LateUpdate;
             //IL.RoR2.CameraRigController.SetCameraState += CameraRigController_SetCameraState;
             //On.RoR2.CameraRigController.SetCameraState += CameraRigController_SetCameraState1;
             On.RoR2.BulletAttack.ProcessHit += BulletAttack_ProcessHit;
@@ -318,11 +322,44 @@ namespace BrynzaAPI
             On.RoR2.EffectData.Serialize += EffectData_Serialize;
             On.RoR2.EffectData.Deserialize += EffectData_Deserialize;
             IL.RoR2.EffectComponent.Reset += EffectComponent_Reset;
+            IL.RoR2.EffectManager.SpawnEffect_EffectIndex_EffectData_bool += EffectManager_SpawnEffect_EffectIndex_EffectData_bool;
+            Hook hook3 = new Hook(typeof(CameraRigController).GetPropertyGetter(nameof(CameraRigController.isControlAllowed)), typeof(BrynzaAPI).GetMethod(nameof(CameraRigController_isControlAllowed), BindingFlags.NonPublic | BindingFlags.Static));
+            Hook hook4 = new Hook(typeof(CameraRigController).GetPropertyGetter(nameof(CameraRigController.isHudAllowed)), typeof(BrynzaAPI).GetMethod(nameof(CameraRigController_isControlAllowed), BindingFlags.NonPublic | BindingFlags.Static));
             RoR2Application.onLoadFinished += OnRoR2Loaded;
             harmonyPatcher = new Harmony(ModGuid);
             harmonyPatcher.CreateClassProcessor(typeof(Patches)).Patch();
         }
 
+        private void EffectManager_SpawnEffect_EffectIndex_EffectData_bool(ILContext il)
+        {
+            ILCursor c = new ILCursor(il);
+            ilhook(1, 6);
+            ilhook(2, 7);
+            void ilhook(int i1, int i2)
+            {
+                if (
+                c.TryGotoNext(MoveType.After,
+                    x => x.MatchStloc(i2) // I am gonna regret this
+                ))
+                {
+                    c.Emit(OpCodes.Ldarg_1);
+                    c.Emit(OpCodes.Ldloc, i2);
+                    c.EmitDelegate(SetEffectInstance);
+                    void SetEffectInstance(EffectData effectData, EffectComponent effectComponent) => effectData.SetEffectInstance(effectComponent);
+                }
+                else
+                {
+                    Log.LogError(il.Method.Name + " IL Hook " + i1 + " failed!");
+                }
+            }
+            
+        }
+
+        private static bool CameraRigController_isControlAllowed(Func<CameraRigController, bool> orig, CameraRigController self)
+        {
+            if (self.targetBody && self.targetBody.HasModdedBodyFlag(Assets.FirstPerson)) return true;
+            return orig(self);
+        }
         private void EffectComponent_Reset(ILContext il)
         {
             ILCursor c = new ILCursor(il);
@@ -439,6 +476,7 @@ namespace BrynzaAPI
             On.RoR2.EffectData.Serialize -= EffectData_Serialize;
             On.RoR2.EffectData.Deserialize -= EffectData_Deserialize;
             IL.RoR2.EffectComponent.Reset -= EffectComponent_Reset;
+            IL.RoR2.EffectManager.SpawnEffect_EffectIndex_EffectData_bool -= EffectManager_SpawnEffect_EffectIndex_EffectData_bool;
             RoR2Application.onLoadFinished -= OnRoR2Loaded;
         }
         private bool hooksEnabled = false;
@@ -1190,6 +1228,24 @@ namespace BrynzaAPI
         private static void CameraModePlayerBasic_CollectLookInputInternal(ILContext il)
         {
             ILCursor c = new ILCursor(il);
+            int locId = 1;
+            ILLabel iLLabel2 = null;
+            if (c.TryGotoNext(MoveType.After,
+                    x => x.MatchLdloc(out _),
+                    x => x.MatchCastclass<UnityEngine.Object>(),
+                    x => x.MatchCall<UnityEngine.Object>("op_Implicit"),
+                    x => x.MatchBrfalse(out iLLabel2)
+                ))
+            {
+                c.Emit(OpCodes.Ldloc_1);
+                c.EmitDelegate(HasFlag);
+                bool HasFlag(ref CameraModeBase.CameraInfo cameraInfo) => (cameraInfo.cameraRigController && cameraInfo.cameraRigController.targetBody && cameraInfo.cameraRigController.targetBody.HasModdedBodyFlag(FirstPerson));
+                c.Emit(OpCodes.Brtrue_S, iLLabel2);
+            }
+            else
+            {
+                Log.LogError(il.Method.Name + " IL Hook 1 failed!");
+            }
             ILLabel iLLabel = null;
             if (c.TryGotoNext(
                     x => x.MatchLdsfld<CameraRigController>(nameof(CameraRigController.enableSprintSensitivitySlowdown)),
@@ -1209,7 +1265,7 @@ namespace BrynzaAPI
             }
             else
             {
-                Log.LogError(il.Method.Name + " IL Hook failed!");
+                Log.LogError(il.Method.Name + " IL Hook 2 failed!");
             }
         }
 
@@ -1358,6 +1414,40 @@ namespace BrynzaAPI
         private static void CameraRigController_LateUpdate(ILContext il)
         {
             ILCursor c = new ILCursor(il);
+            ILLabel iLLabel = null;
+            if (c.TryGotoNext(MoveType.Before,
+                    x => x.MatchLdarg(0),
+                    x => x.MatchLdfld<CameraRigController>(nameof(CameraRigController.overrideCam)),
+                    x => x.MatchBrfalse(out iLLabel)
+                ))
+            {
+                c.Emit(OpCodes.Ldarg_0);
+                c.EmitDelegate(HasFlag);
+                bool HasFlag(CameraRigController cameraRigController) => cameraRigController.targetBody && cameraRigController.targetBody.HasModdedBodyFlag(FirstPerson);
+                c.Emit(OpCodes.Brtrue_S, iLLabel);
+            }
+            else
+            {
+                Log.LogError(il.Method.Name + " IL Hook 1 failed!");
+            }
+            ILLabel iLLabel2 = null;
+            if (c.TryGotoNext(MoveType.Before,
+                    x => x.MatchLdarg(0),
+                    x => x.MatchLdfld<CameraRigController>(nameof(CameraRigController.lerpCameraTime)),
+                    x => x.MatchLdcR4(out _),
+                    x => x.MatchBltUn(out iLLabel2)
+                ))
+            {
+                c.Emit(OpCodes.Ldarg_0);
+                c.EmitDelegate(HasFlag);
+                bool HasFlag(CameraRigController cameraRigController) => cameraRigController.targetBody && cameraRigController.targetBody.HasModdedBodyFlag(FirstPerson);
+                c.Emit(OpCodes.Brtrue_S, iLLabel2);
+            }
+            else
+            {
+                Log.LogError(il.Method.Name + " IL Hook 2 failed!");
+            }
+            /*ILCursor c = new ILCursor(il);
             Instruction instruction = null;
             if (c.TryGotoNext(MoveType.After,
                     x => x.MatchLdloc(5),
@@ -1389,7 +1479,7 @@ namespace BrynzaAPI
             else
             {
                 Log.LogError(il.Method.Name + " IL Hook failed!");
-            }
+            }*/
         }
 
         private static void CameraModePlayerBasic_UpdateCrosshair(ILContext il)
@@ -2710,6 +2800,7 @@ private void BulletAttack_Fire(ILContext il)
         /// Body will sprint all time. All sprinting negative effects will be nullified.
         /// </summary>
         public static CharacterBodyAPI.ModdedBodyFlag SprintAllTime = CharacterBodyAPI.ReserveBodyFlag();
+        public static CharacterBodyAPI.ModdedBodyFlag FirstPerson = CharacterBodyAPI.ReserveBodyFlag();
         /// <summary>
         /// Body will not receive damage from Fog. Fog bonus damage still increases.
         /// </summary>
@@ -2730,26 +2821,6 @@ private void BulletAttack_Fire(ILContext il)
         /// KeepVelocityBuff.
         /// </summary>
         public static BuffDef AirControlFromVelocityAddBuff;
-        /// <summary>
-        /// Set this damage type to set taked damage to targets max health. Works only on non champion enemies
-        /// </summary>
-        public static DamageAPI.ModdedDamageType InstakillNoChampion = DamageAPI.ReserveDamageType();
-        /// /// <summary>
-        /// Set this damage type to set taked damage to targets max health. Works only on champion enemies
-        /// </summary>
-        public static DamageAPI.ModdedDamageType InstakillChampion = DamageAPI.ReserveDamageType();
-        /// /// <summary>
-        /// Set this damage type to set taked damage to 1/4 of targets max health. Works only on non champion enemies
-        /// </summary>
-        public static DamageAPI.ModdedDamageType BruiseNoChampion = DamageAPI.ReserveDamageType();
-        /// /// <summary>
-        /// Set this damage type to set taked damage to 1/4 of targets max health. Works only on champion enemies
-        /// </summary>
-        public static DamageAPI.ModdedDamageType BruiseChampion = DamageAPI.ReserveDamageType();
-        /*/// /// <summary>
-        /// Set this proc type to heal to make it overheal
-        /// </summary>
-        public static ModdedProcType Overheal = ProcTypeAPI.ReserveProcType();*/
         public struct EntityStateMachineAdditionInfo
         {
             public string entityStateMachineName;
@@ -2812,29 +2883,6 @@ private void BulletAttack_Fire(ILContext il)
             if (sections.Contains(this)) sections.Remove(this);
             if (sectionByName.ContainsKey(name)) sectionByName.Remove(name);
             if (button != null) GameObject.Destroy(button.gameObject);
-        }
-    }
-    public class ProjectileOnMessage : MessageBase
-    {
-        public override void Serialize(NetworkWriter writer)
-        {
-        }
-        public override void Deserialize(NetworkReader reader)
-        {
-        }
-    }
-    public interface IProjectileOnFireMessage
-    {
-        public void Deserialize(NetworkReader reader)
-        {
-        }
-
-        public void OnReceived(ProjectileController projectileController)
-        {
-        }
-
-        public void Serialize(NetworkWriter writer)
-        {
         }
     }
     /// <summary>
@@ -2902,8 +2950,10 @@ private void BulletAttack_Fire(ILContext il)
     /// Applies velocity to filtered targets on projectile explosion.
     /// </summary>
     [RequireComponent(typeof(ProjectileExplosion))]
-    public class RocketJumpComponent : MonoBehaviour, IOnProjectileExplosionDetonate
+    public class RocketJumpComponent : MonoBehaviour, IOnProjectileExplosionDetonate // This class is full of evil and fucked up
     {
+        public static Dictionary<uint, PendingAfterRocketJump> pendingRocketJumps = [];
+        public NetworkIdentity networkIdentity;
         public float force = 3000f;
         public AnimationCurve falloff = AnimationCurve.EaseInOut(0f, 1f, 1f, 1f);
         public AnimationCurve verticalForceReduction = AnimationCurve.EaseInOut(0f, 0f, 1f, 1f);
@@ -2913,16 +2963,32 @@ private void BulletAttack_Fire(ILContext il)
         public RocketJumpFiltering rocketJumpFiltering;
         public delegate void OnRocketJumpApplied(RocketJumpComponent rocketJumpComponent, CharacterBody characterBody, Vector3 force);
         public DelegateHolder<OnRocketJumpApplied> onRocketJumpApplied;
+        public void Awake()
+        {
+            if (!networkIdentity) networkIdentity = GetComponent<NetworkIdentity>();
+        }
         public void OnProjectileExplosionDetonate(BlastAttack blastAttack, BlastAttack.Result result)
         {
             if (force == 0) return;
-            Collider[] colliders = Physics.OverlapSphere(blastAttack.position, blastAttack.radius * radiusMultiplier, LayerIndex.CommonMasks.characterBodiesOrDefault, QueryTriggerInteraction.UseGlobal);
-            List<CharacterBody> li = new List<CharacterBody>();
-            foreach (Collider collider in colliders)
+            List<GameObject> li = [];
+            List<Component> components = [];
+            foreach (PlayerCharacterMasterController playerCharacterMasterController in PlayerCharacterMasterController.instances) // This is dogshit
             {
-                CharacterBody body = collider.GetComponent<CharacterBody>();
-                if (!body || li.Contains(body)) continue;
-                li.Add(body);
+                CharacterMaster master = playerCharacterMasterController.master;
+                if (!master) continue;
+                CharacterBody characterBody = master.GetBody();
+                if (!characterBody) continue;
+                components.Add(characterBody);
+            }
+            float radius = blastAttack.radius * radiusMultiplier;
+            Component[] colliders = Physics.OverlapSphere(blastAttack.position, radius, LayerIndex.CommonMasks.characterBodiesOrDefault, QueryTriggerInteraction.UseGlobal);
+            components.AddRange(colliders);
+            foreach (Component collider in components)
+            {
+                if (li.Contains(collider.gameObject)) continue;
+                li.Add(collider.gameObject);
+                CharacterBody body = collider as CharacterBody ?? collider.GetComponent<CharacterBody>();
+                if (!body) continue;
                 bool flag = false;
                 switch (rocketJumpFiltering)
                 {
@@ -2937,38 +3003,48 @@ private void BulletAttack_Fire(ILContext il)
                         break;
                 }
                 if(!flag) continue;
-                Vector3 vector3 = (body.corePosition - blastAttack.position);
-                float falloffIntensity = falloff.Evaluate(vector3.sqrMagnitude / (radiusMultiplier * radiusMultiplier));
-                vector3.Normalize();
-                Vector3 vector31 = new Vector3(vector3.x, 0f, vector3.z);
-                float angle = Vector3.Angle(vector3, vector31);
-                float angleIntensity = angle / 90f;
-                vector3.y *= verticalForceReduction.Evaluate(angleIntensity);
-                vector3 = vector3.normalized * force * falloffIntensity;
-                PhysForceInfo physForceInfo = new PhysForceInfo
+                if (body.hasEffectiveAuthority)
                 {
-                    force = vector3,
-                    _flags = (int)physForceFlags
-                };
-                if (body.hasAuthority)
-                {
-                    ApplyForce(body, physForceInfo);
+                    ApplyForce(body, blastAttack.position, radius, networkIdentity.netId.Value);
                 }
                 else
                 {
-                    new RocketJumpMessage(body.netId, physForceInfo).Send(NetworkDestination.Clients);
+                    pendingRocketJumps.Add(networkIdentity.netId.Value, new PendingAfterRocketJump { buffsWhileMidair = buffsWhileMidair, onRocketJumpApplied = onRocketJumpApplied}); // This is bruh momnmeto
+                    new RocketJumpMessage(body.networkIdentity, networkIdentity, blastAttack.position, radius, networkIdentity.netId.Value).Send(NetworkDestination.Clients);
                 }
-                if (body.characterMotor && buffsWhileMidair != null && buffsWhileMidair.Count > 0)
-                {
-                    RemoveBuffsOnGroundHitServer removeBuffsOnGroundHitServer = body.gameObject.GetOrAddComponent<RemoveBuffsOnGroundHitServer>();
-                    removeBuffsOnGroundHitServer.buffDefs.AddRange(buffsWhileMidair);
-                    foreach (BuffDef buffDef in buffsWhileMidair) body.AddBuff(buffDef);
-                }
-                onRocketJumpApplied?.InvokeAll(this, body, vector3);
             }
         }
-        public static void ApplyForce(CharacterBody characterBody, PhysForceInfo physForceInfo)
+        public static void AfterRocketJumping(CharacterBody characterBody, PendingAfterRocketJump pendingAfterRocketJump)
         {
+            if (characterBody.characterMotor && pendingAfterRocketJump.buffsWhileMidair != null && pendingAfterRocketJump.buffsWhileMidair.Count > 0)
+            {
+                RemoveBuffsOnGroundHitServer removeBuffsOnGroundHitServer = characterBody.gameObject.GetOrAddComponent<RemoveBuffsOnGroundHitServer>();
+                removeBuffsOnGroundHitServer.buffDefs.AddRange(pendingAfterRocketJump.buffsWhileMidair);
+                foreach (BuffDef buffDef in pendingAfterRocketJump.buffsWhileMidair) characterBody.AddBuff(buffDef);
+            }
+            pendingAfterRocketJump.onRocketJumpApplied?.InvokeAll(null, characterBody, Vector3.zero);
+        }
+        public void AfterRocketJumping(CharacterBody characterBody) => AfterRocketJumping(characterBody, new PendingAfterRocketJump { buffsWhileMidair = buffsWhileMidair, onRocketJumpApplied = onRocketJumpApplied });
+        public void ApplyForce(CharacterBody characterBody, Vector3 explosionPosition, float radius, uint id)
+        {
+            Vector3 vector3 = characterBody.corePosition - explosionPosition;
+            if (vector3.sqrMagnitude > radius * radius)
+            {
+                new RocketJumpFailServerMessage(id).Send(NetworkDestination.Server);
+                return;
+            }
+            float falloffIntensity = falloff.Evaluate(vector3.sqrMagnitude / (radiusMultiplier * radiusMultiplier));
+            vector3.Normalize();
+            Vector3 vector31 = new Vector3(vector3.x, 0f, vector3.z);
+            float angle = Vector3.Angle(vector3, vector31);
+            float angleIntensity = angle / 90f;
+            vector3.y *= verticalForceReduction.Evaluate(angleIntensity);
+            vector3 = vector3.normalized * force * falloffIntensity;
+            PhysForceInfo physForceInfo = new PhysForceInfo
+            {
+                force = vector3,
+                _flags = (int)physForceFlags
+            };
             if (characterBody.characterMotor)
             {
                 if (characterBody.characterMotor.velocity.y < 0f) characterBody.characterMotor.velocity.y = 0f;
@@ -2978,45 +3054,117 @@ private void BulletAttack_Fire(ILContext il)
             {
                 if (characterBody.rigidbody.velocity.y < 0f)
                 {
-                    Vector3 vector3 = characterBody.rigidbody.velocity;
-                    vector3.y = 0f;
-                    characterBody.rigidbody.velocity = vector3;
+                    Vector3 vector32 = characterBody.rigidbody.velocity;
+                    vector32.y = 0f;
+                    characterBody.rigidbody.velocity = vector32;
                 }
                 characterBody.rigidbody.AddForceWithInfo(physForceInfo);
             }
-        }
-        public class RocketJumpMessage : INetMessage
-        {
-            public NetworkInstanceId networkInstanceId;
-            public PhysForceInfo physForceInfo;
-            public RocketJumpMessage()
+            if (NetworkServer.active)
             {
-
+                AfterRocketJumping(characterBody);
             }
-            public RocketJumpMessage(NetworkInstanceId networkInstanceId, PhysForceInfo physForceInfo)
+            else
             {
-                this.networkInstanceId = networkInstanceId;
-                this.physForceInfo = physForceInfo;
+                new RocketJumpServerMessage(characterBody.networkIdentity, id).Send(NetworkDestination.Server);
+            }
+        }
+        public class RocketJumpFailServerMessage : INetMessage // First net message
+        {
+            public uint id;
+            public RocketJumpFailServerMessage()
+            {
+            }
+            public RocketJumpFailServerMessage(uint id)
+            {
+                this.id = id;
             }
             public void Deserialize(NetworkReader reader)
             {
-                networkInstanceId = reader.ReadNetworkId();
-                physForceInfo = GeneratedNetworkCode._ReadPhysForceInfo_None(reader);
+                id = reader.ReadUInt32();
             }
-
             public void OnReceived()
             {
-                GameObject gameObject = Util.FindNetworkObject(networkInstanceId);
-                if (!gameObject) return;
-                CharacterBody characterBody = gameObject.GetComponent<CharacterBody>();
-                if (!characterBody || !characterBody.hasAuthority) return;
-                ApplyForce(characterBody, physForceInfo);
+                pendingRocketJumps.Remove(id);
             }
-
             public void Serialize(NetworkWriter writer)
             {
-                writer.Write(networkInstanceId);
-                GeneratedNetworkCode._WritePhysForceInfo_None(writer, physForceInfo);
+                writer.Write(id);
+            }
+        }
+        public class RocketJumpServerMessage : INetMessage // Second net message oh mu goodness gracious
+        {
+            public NetworkIdentity bodyNetworkIdentity;
+            public uint id;
+            public RocketJumpServerMessage()
+            {
+            }
+            public RocketJumpServerMessage(NetworkIdentity bodyNetworkIdentity, uint id)
+            {
+                this.bodyNetworkIdentity = bodyNetworkIdentity;
+                this.id = id;
+            }
+            public void Deserialize(NetworkReader reader)
+            {
+                bodyNetworkIdentity = reader.ReadNetworkIdentity();
+                id = reader.ReadUInt32();
+            }
+            public void OnReceived()
+            {
+                CharacterBody characterBody = bodyNetworkIdentity.GetComponent<CharacterBody>();
+                if (!characterBody) return;
+                PendingAfterRocketJump pendingAfterRocketJump = pendingRocketJumps[id];
+                pendingRocketJumps.Remove(id);
+                AfterRocketJumping(characterBody, pendingAfterRocketJump);
+            }
+            public void Serialize(NetworkWriter writer)
+            {
+                writer.Write(bodyNetworkIdentity);
+                writer.Write(id);
+            }
+        }
+        public class RocketJumpMessage : INetMessage // Third net message og my fucking god
+        {
+            public NetworkIdentity bodyNetworkIdentity;
+            public NetworkIdentity projectileNetworkIdentity;
+            public Vector3 explosionPosition;
+            public float radius;
+            public uint id;
+            public RocketJumpMessage()
+            {
+            }
+            public RocketJumpMessage(NetworkIdentity bodyNetworkIdentity, NetworkIdentity projectileNetworkIdentity, Vector3 explosionPosition, float radius, uint id)
+            {
+                this.bodyNetworkIdentity = bodyNetworkIdentity;
+                this.projectileNetworkIdentity = projectileNetworkIdentity;
+                this.explosionPosition = explosionPosition;
+                this.radius = radius;
+                this.id = id;
+            }
+            public void Deserialize(NetworkReader reader)
+            {
+                bodyNetworkIdentity = reader.ReadNetworkIdentity();
+                projectileNetworkIdentity = reader.ReadNetworkIdentity();
+                explosionPosition = reader.ReadVector3();
+                radius = reader.ReadSingle();
+                id = reader.ReadUInt32();
+            }
+            public void OnReceived()
+            {
+                if (!Util.HasEffectiveAuthority(bodyNetworkIdentity)) return;
+                CharacterBody characterBody = bodyNetworkIdentity.GetComponent<CharacterBody>();
+                if (!characterBody) return;
+                RocketJumpComponent rocketJumpComponent = projectileNetworkIdentity.GetComponent<RocketJumpComponent>();
+                if (!rocketJumpComponent) return;
+                rocketJumpComponent.ApplyForce(characterBody, explosionPosition, radius, id);
+            }
+            public void Serialize(NetworkWriter writer)
+            {
+                writer.Write(bodyNetworkIdentity);
+                writer.Write(projectileNetworkIdentity);
+                writer.Write(explosionPosition);
+                writer.Write(radius);
+                writer.Write(id);
             }
         }
         public enum RocketJumpFiltering
@@ -3024,6 +3172,11 @@ private void BulletAttack_Fire(ILContext il)
             OnlySelf,
             OnlyTeammates,
             Everyone
+        }
+        public struct PendingAfterRocketJump
+        {
+            public List<BuffDef> buffsWhileMidair;
+            public DelegateHolder<OnRocketJumpApplied> onRocketJumpApplied;
         }
     }
     /// <summary>
@@ -3207,7 +3360,7 @@ private void BulletAttack_Fire(ILContext il)
         }
         [SerializeField]
         [Tooltip("Set this if you want to specify which particle system is tracked. Otherwise it will automatically grab the first one it finds.")]
-        private ParticleSystem trackedParticleSystem;
+        public ParticleSystem trackedParticleSystem;
         private EffectManagerHelper efh;
     }
     public class SniperHurtboxTracker : MonoBehaviour
@@ -3619,6 +3772,8 @@ private void BulletAttack_Fire(ILContext il)
         public static void RemoveClientBuff(this CharacterBody characterBody, BuffDef buffDef, int count = 1) => characterBody.AddClientBuff(buffDef.buffIndex, -count);
         public static Vector3? GetScale(this EffectData effectData) => BrynzaInterop.GetScale(effectData);
         public static void SetScale(this EffectData effectData, Vector3? scale) => BrynzaInterop.SetScale(effectData, scale);
+        public static EffectComponent GetEffectInstance(this EffectData effectData) => BrynzaInterop.GetEffectInstance(effectData);
+        public static void SetEffectInstance(this EffectData effectData, EffectComponent effectComponent) => BrynzaInterop.SetEffectInstance(effectData, effectComponent);
         public static void ResetIgnoredHealthComponents(this BulletAttack bulletAttack)
         {
             if(bulletAttack.GetIgnoredHealthComponents() != null) bulletAttack.GetIgnoredHealthComponents().Clear();

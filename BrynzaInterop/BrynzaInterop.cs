@@ -128,6 +128,8 @@ public static class BrynzaInterop
     public static int[] GetClientBuffs(CharacterBody characterBody) => characterBody.bapi_clientBuffs;
     public static void SetScale(EffectData effectData, Vector3? value) => effectData.bapi_scale = value;
     public static Vector3? GetScale(EffectData effectData) => effectData.bapi_scale;
+    public static void SetEffectInstance(EffectData effectData, EffectComponent effectComponent) => effectData.bapi_effectInstance = effectComponent;
+    public static EffectComponent GetEffectInstance(EffectData effectData) => effectData.bapi_effectInstance;
     //public static List<HealthComponent> GetIgnoredHealthComponents(BulletAttack bulletAttack) => bulletAttack.bapi_ignoredHealthComponentList != null ? (Enumerable.Range(0, bulletAttack.bapi_ignoredHealthComponentList.Count)
     //                         .Select(i => (bulletAttack.bapi_ignoredHealthComponentList[i] is HealthComponent ? bulletAttack.bapi_ignoredHealthComponentList[i] as HealthComponent : null))
     //                         .ToList()) : null;
