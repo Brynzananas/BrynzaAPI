@@ -81,7 +81,7 @@ namespace BrynzaAPI
     {
         public const string ModGuid = "com.brynzananas.brynzaapi";
         public const string ModName = "Brynza API";
-        public const string ModVer = "1.7.0";
+        public const string ModVer = "1.7.2";
         public static FixedConditionalWeakTable<CharacterMotor, List<OnHitGroundServerDelegate>> onHitGroundServerDictionary = new FixedConditionalWeakTable<CharacterMotor, List<OnHitGroundServerDelegate>>();
         public delegate void OnHitGroundServerDelegate(CharacterMotor characterMotor, ref CharacterMotor.HitGroundInfo hitGroundInfo);
         public static bool proejctilesConfiguratorEnabled { get; private set; }
@@ -2926,9 +2926,9 @@ private void BulletAttack_Fire(ILContext il)
         public List<BuffDef> buffDefs = [];
         public void OnGroundHitServer(CharacterBody characterBody, CharacterMotor.HitGroundInfo hitGroundInfo)
         {
-            Destroy(this);
             if (buffDefs == null || !characterBody) return;
             foreach (BuffDef buffDef in buffDefs) characterBody.RemoveBuff(buffDef);
+            Destroy(this);
         }
     }
     [RequireComponent(typeof(ProjectileController))]
@@ -2957,6 +2957,7 @@ private void BulletAttack_Fire(ILContext il)
         public float force = 3000f;
         public AnimationCurve falloff = AnimationCurve.EaseInOut(0f, 1f, 1f, 1f);
         public AnimationCurve verticalForceReduction = AnimationCurve.EaseInOut(0f, 0f, 1f, 1f);
+        public bool resetNegativeVerticalVelocity = true;
         public float radiusMultiplier = 1.25f;
         public PhysForceFlags physForceFlags = PhysForceFlags.disableAirControlUntilCollision | PhysForceFlags.ignoreGroundStick;
         public List<BuffDef> buffsWhileMidair = new List<BuffDef>();
@@ -3016,7 +3017,7 @@ private void BulletAttack_Fire(ILContext il)
         }
         public static void AfterRocketJumping(CharacterBody characterBody, PendingAfterRocketJump pendingAfterRocketJump)
         {
-            if (characterBody.characterMotor && pendingAfterRocketJump.buffsWhileMidair != null && pendingAfterRocketJump.buffsWhileMidair.Count > 0)
+            if (characterBody.characterMotor && characterBody.characterMotor.isGrounded && pendingAfterRocketJump.buffsWhileMidair != null && pendingAfterRocketJump.buffsWhileMidair.Count > 0)
             {
                 RemoveBuffsOnGroundHitServer removeBuffsOnGroundHitServer = characterBody.gameObject.GetOrAddComponent<RemoveBuffsOnGroundHitServer>();
                 removeBuffsOnGroundHitServer.buffDefs.AddRange(pendingAfterRocketJump.buffsWhileMidair);
@@ -3047,12 +3048,12 @@ private void BulletAttack_Fire(ILContext il)
             };
             if (characterBody.characterMotor)
             {
-                if (characterBody.characterMotor.velocity.y < 0f) characterBody.characterMotor.velocity.y = 0f;
+                if (resetNegativeVerticalVelocity && characterBody.characterMotor.velocity.y < 0f) characterBody.characterMotor.velocity.y = 0f;
                 characterBody.characterMotor.ApplyForceImpulse(physForceInfo);
             }
             else if (characterBody.rigidbody)
             {
-                if (characterBody.rigidbody.velocity.y < 0f)
+                if (resetNegativeVerticalVelocity && characterBody.rigidbody.velocity.y < 0f)
                 {
                     Vector3 vector32 = characterBody.rigidbody.velocity;
                     vector32.y = 0f;
