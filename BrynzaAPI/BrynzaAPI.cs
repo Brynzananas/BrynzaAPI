@@ -1962,7 +1962,7 @@ private void GenericSkill_SetBonusStockFromBody(ILContext il)
                 c.Emit(OpCodes.Ldarg_2);
                 c.EmitDelegate<Func<CharacterMotor, Vector3, CharacterBody, float, float>>((cm, vector, cb, horizontalBonus) =>
                 {
-                    bool canBunnyHop = cm.GetBunnyHop();
+                    bool canBunnyHop = cm.GetBunnyHopEffective();
                     float multiplier = 1f;
                     if (canBunnyHop)
                     {
@@ -1977,7 +1977,7 @@ private void GenericSkill_SetBonusStockFromBody(ILContext il)
                 c.EmitDelegate<Func<CharacterMotor, Vector3>>((cm) =>
                 {
                     Vector3 vector3 = Vector3.zero;
-                    bool canBunnyHop = cm.GetBunnyHop();
+                    bool canBunnyHop = cm.GetBunnyHopEffective();
                     if (canBunnyHop) vector3 = cm.velocity;
                     return vector3;
                 });
@@ -2960,10 +2960,12 @@ private void BulletAttack_Fire(ILContext il)
         public bool resetNegativeVerticalVelocity = true;
         public float radiusMultiplier = 1.25f;
         public PhysForceFlags physForceFlags = PhysForceFlags.disableAirControlUntilCollision | PhysForceFlags.ignoreGroundStick;
-        public List<BuffDef> buffsWhileMidair = new List<BuffDef>();
+        public List<BuffDef> buffsWhileMidair = [];
+        public List<BuffDef> clientBuffsWhileMidair = [];
         public RocketJumpFiltering rocketJumpFiltering;
         public delegate void OnRocketJumpApplied(RocketJumpComponent rocketJumpComponent, CharacterBody characterBody, Vector3 force);
         public DelegateHolder<OnRocketJumpApplied> onRocketJumpApplied;
+        public DelegateHolder<OnRocketJumpApplied> onRocketJumpAppliedAuthority;
         public void Awake()
         {
             if (!networkIdentity) networkIdentity = GetComponent<NetworkIdentity>();
@@ -3015,17 +3017,17 @@ private void BulletAttack_Fire(ILContext il)
                 }
             }
         }
-        public static void AfterRocketJumping(CharacterBody characterBody, PendingAfterRocketJump pendingAfterRocketJump)
+        public static void AfterRocketJumping(CharacterBody characterBody, PendingAfterRocketJump pendingAfterRocketJump, Vector3 force)
         {
-            if (characterBody.characterMotor && characterBody.characterMotor.isGrounded && pendingAfterRocketJump.buffsWhileMidair != null && pendingAfterRocketJump.buffsWhileMidair.Count > 0)
+            if (characterBody.characterMotor && !characterBody.characterMotor.isGrounded && pendingAfterRocketJump.buffsWhileMidair != null && pendingAfterRocketJump.buffsWhileMidair.Count > 0)
             {
                 RemoveBuffsOnGroundHitServer removeBuffsOnGroundHitServer = characterBody.gameObject.GetOrAddComponent<RemoveBuffsOnGroundHitServer>();
                 removeBuffsOnGroundHitServer.buffDefs.AddRange(pendingAfterRocketJump.buffsWhileMidair);
                 foreach (BuffDef buffDef in pendingAfterRocketJump.buffsWhileMidair) characterBody.AddBuff(buffDef);
             }
-            pendingAfterRocketJump.onRocketJumpApplied?.InvokeAll(null, characterBody, Vector3.zero);
+            pendingAfterRocketJump.onRocketJumpApplied?.InvokeAll(null, characterBody, force);
         }
-        public void AfterRocketJumping(CharacterBody characterBody) => AfterRocketJumping(characterBody, new PendingAfterRocketJump { buffsWhileMidair = buffsWhileMidair, onRocketJumpApplied = onRocketJumpApplied });
+        public void AfterRocketJumping(CharacterBody characterBody, Vector3 force) => AfterRocketJumping(characterBody, new PendingAfterRocketJump { buffsWhileMidair = buffsWhileMidair, onRocketJumpApplied = onRocketJumpApplied }, force);
         public void ApplyForce(CharacterBody characterBody, Vector3 explosionPosition, float radius, uint id)
         {
             Vector3 vector3 = characterBody.corePosition - explosionPosition;
@@ -3046,10 +3048,21 @@ private void BulletAttack_Fire(ILContext il)
                 force = vector3,
                 _flags = (int)physForceFlags
             };
-            if (characterBody.characterMotor)
+            CharacterMotor characterMotor = characterBody.characterMotor;
+            if (characterMotor)
             {
-                if (resetNegativeVerticalVelocity && characterBody.characterMotor.velocity.y < 0f) characterBody.characterMotor.velocity.y = 0f;
-                characterBody.characterMotor.ApplyForceImpulse(physForceInfo);
+                if (resetNegativeVerticalVelocity && characterMotor.velocity.y < 0f) characterMotor.velocity.y = 0f;
+                characterMotor.ApplyForceImpulse(physForceInfo);
+                if (!characterMotor.isGrounded && clientBuffsWhileMidair != null && clientBuffsWhileMidair.Count > 0)
+                {
+                    characterMotor.onHitGroundAuthority += CharacterMotor_onHitGroundAuthority;
+                    foreach (BuffDef buffDef in clientBuffsWhileMidair) characterBody.AddClientBuff(buffDef);
+                    void CharacterMotor_onHitGroundAuthority(ref CharacterMotor.HitGroundInfo hitGroundInfo)
+                    {
+                        foreach (BuffDef buffDef in clientBuffsWhileMidair) characterBody.RemoveClientBuff(buffDef);
+                        characterMotor.onHitGroundAuthority -= CharacterMotor_onHitGroundAuthority;
+                    }
+                }
             }
             else if (characterBody.rigidbody)
             {
@@ -3061,15 +3074,17 @@ private void BulletAttack_Fire(ILContext il)
                 }
                 characterBody.rigidbody.AddForceWithInfo(physForceInfo);
             }
+            onRocketJumpAppliedAuthority?.InvokeAll(null, characterBody, vector3);
             if (NetworkServer.active)
             {
-                AfterRocketJumping(characterBody);
+                AfterRocketJumping(characterBody, vector3);
             }
             else
             {
-                new RocketJumpServerMessage(characterBody.networkIdentity, id).Send(NetworkDestination.Server);
+                new RocketJumpServerMessage(characterBody.networkIdentity, vector3, id).Send(NetworkDestination.Server);
             }
         }
+
         public class RocketJumpFailServerMessage : INetMessage // First net message
         {
             public uint id;
@@ -3096,18 +3111,21 @@ private void BulletAttack_Fire(ILContext il)
         public class RocketJumpServerMessage : INetMessage // Second net message oh mu goodness gracious
         {
             public NetworkIdentity bodyNetworkIdentity;
+            public Vector3 force;
             public uint id;
             public RocketJumpServerMessage()
             {
             }
-            public RocketJumpServerMessage(NetworkIdentity bodyNetworkIdentity, uint id)
+            public RocketJumpServerMessage(NetworkIdentity bodyNetworkIdentity, Vector3 force, uint id)
             {
                 this.bodyNetworkIdentity = bodyNetworkIdentity;
+                this.force = force;
                 this.id = id;
             }
             public void Deserialize(NetworkReader reader)
             {
                 bodyNetworkIdentity = reader.ReadNetworkIdentity();
+                force = reader.ReadVector3();
                 id = reader.ReadUInt32();
             }
             public void OnReceived()
@@ -3116,11 +3134,12 @@ private void BulletAttack_Fire(ILContext il)
                 if (!characterBody) return;
                 PendingAfterRocketJump pendingAfterRocketJump = pendingRocketJumps[id];
                 pendingRocketJumps.Remove(id);
-                AfterRocketJumping(characterBody, pendingAfterRocketJump);
+                AfterRocketJumping(characterBody, pendingAfterRocketJump, force);
             }
             public void Serialize(NetworkWriter writer)
             {
                 writer.Write(bodyNetworkIdentity);
+                writer.Write(force);
                 writer.Write(id);
             }
         }
@@ -3690,7 +3709,7 @@ private void BulletAttack_Fire(ILContext il)
         /// Set Character Motor movement to take current velocity.
         /// </summary>
         public static void SetKeepVelocityOnMoving(this CharacterMotor characterMotor, bool flag) => BrynzaInterop.SetKeepVelocityOnMoving(characterMotor, flag);
-        public static bool GetKeepVelocityOnMovingEffective(this CharacterMotor characterMotor) => characterMotor.GetKeepVelocityOnMoving() || (characterMotor && characterMotor.body && characterMotor.body.GetBuffCount(Assets.KeepVelocityBuff) > 0) || InvokeExtraKeepVelocityOnMovingDelegates(characterMotor);
+        public static bool GetKeepVelocityOnMovingEffective(this CharacterMotor characterMotor) => characterMotor.GetKeepVelocityOnMoving() || (characterMotor && characterMotor.body && characterMotor.body.GetBuffCount(Assets.KeepVelocityBuff) + characterMotor.body.GetClientBuffCount(Assets.KeepVelocityBuff) > 0) || InvokeExtraKeepVelocityOnMovingDelegates(characterMotor);
         public static bool GetKeepVelocityOnMoving(this CharacterMotor characterMotor) => BrynzaInterop.GetKeepVelocityOnMoving(characterMotor);
         /// <summary>
         /// Set Character Motor to have consistent air acceleration.
@@ -3705,9 +3724,10 @@ private void BulletAttack_Fire(ILContext il)
         public static bool GetFluidMaxDistanceDelta(this CharacterMotor characterMotor) => BrynzaInterop.GetFluidMaxDistanceDelta(characterMotor);
         public static void SetStrafe(this CharacterMotor characterMotor, bool flag) => BrynzaInterop.SetStrafe(characterMotor, flag);
         public static bool GetStrafe(this CharacterMotor characterMotor) => BrynzaInterop.GetStrafe(characterMotor);
-        public static bool GetStrafeEffective(this CharacterMotor characterMotor) => characterMotor.GetStrafe() || (characterMotor && characterMotor.body && characterMotor.body.GetBuffCount(Assets.StrafeBuff) > 0) || InvokeExtraStrafeDelegates(characterMotor);
+        public static bool GetStrafeEffective(this CharacterMotor characterMotor) => characterMotor.GetStrafe() || (characterMotor && characterMotor.body && characterMotor.body.GetBuffCount(Assets.StrafeBuff) + characterMotor.body.GetClientBuffCount(Assets.StrafeBuff) > 0) || InvokeExtraStrafeDelegates(characterMotor);
         public static void SetBunnyHop(this CharacterMotor characterMotor, bool flag) => BrynzaInterop.SetBunnyHop(characterMotor, flag);
-        public static bool GetBunnyHop(this CharacterMotor characterMotor) => (BrynzaInterop.GetBunnyHop(characterMotor)) || (characterMotor && characterMotor.body && characterMotor.body.GetBuffCount(Assets.BunnyHopBuff) > 0) || InvokeExtraBunnyHopDelegates(characterMotor);
+        public static bool GetBunnyHop(this CharacterMotor characterMotor) => BrynzaInterop.GetBunnyHop(characterMotor);
+        public static bool GetBunnyHopEffective(this CharacterMotor characterMotor) => characterMotor.GetBunnyHop() || (characterMotor && characterMotor.body && characterMotor.body.GetBuffCount(Assets.BunnyHopBuff) + characterMotor.body.GetClientBuffCount(Assets.BunnyHopBuff) > 0) || InvokeExtraBunnyHopDelegates(characterMotor);
         public static void SetBaseWallJumpCount(this CharacterBody characterBody, int count) => BrynzaInterop.SetBaseWallJumpCount(characterBody, count);
         public static int GetBaseWallJumpCount(this CharacterBody characterBody) => BrynzaInterop.GetBaseWallJumpCount(characterBody);
         public static void SetMaxWallJumpCount(this CharacterBody characterBody, int count) => BrynzaInterop.SetMaxWallJumpCount(characterBody, count);
