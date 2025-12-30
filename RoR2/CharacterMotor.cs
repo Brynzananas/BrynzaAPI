@@ -17,5 +17,7 @@ namespace RoR2
         public bool bapi_bunnyHop;
         public int bapi_wallJumpCount;
         public float bapi_airControlFromVelocityAdd;
+        public bool bapi_useMaxAirVelocity;
+        public float bapi_maxAirVelocity;
     }
 }

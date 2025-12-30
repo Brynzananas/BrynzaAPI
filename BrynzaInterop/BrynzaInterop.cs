@@ -58,8 +58,12 @@ public static class BrynzaInterop
                              .ToList()) : null;
     public static Vector3 GetVelocityOverride(CharacterMotor characterMotor) => characterMotor.bapi_velocityOverride;
     public static void SetVelocityOverride(CharacterMotor characterMotor, Vector3 value) => characterMotor.bapi_velocityOverride = value;
+    public static float GetMaxAirVelocity(CharacterMotor characterMotor) => characterMotor.bapi_maxAirVelocity;
+    public static void SetMaxAirVelocity(CharacterMotor characterMotor, float value) => characterMotor.bapi_maxAirVelocity = value;
     public static bool GetKeepVelocityOnMoving(CharacterMotor characterMotor) => characterMotor.bapi_keepVelocityOnMoving;
     public static void SetKeepVelocityOnMoving(CharacterMotor characterMotor, bool value) => characterMotor.bapi_keepVelocityOnMoving = value;
+    public static bool GetUseMaxAirVelocity(CharacterMotor characterMotor) => characterMotor.bapi_useMaxAirVelocity;
+    public static void SetUseMaxAirVelocity(CharacterMotor characterMotor, bool value) => characterMotor.bapi_useMaxAirVelocity = value;
     public static float GetConsistentAcceleration(CharacterMotor characterMotor) => characterMotor.bapi_consistentAcceleration;
     public static void SetConsistentAcceleration(CharacterMotor characterMotor, float value) => characterMotor.bapi_consistentAcceleration = value;
     public static float GetAirControlFromVelocityAdd(CharacterMotor characterMotor) => characterMotor.bapi_airControlFromVelocityAdd;
@@ -81,30 +85,30 @@ public static class BrynzaInterop
     public static List<object> GetIgnoredHealthComponents(BulletAttack bulletAttack) => bulletAttack.bapi_ignoredHealthComponentList;
     public static void SetIgnoredHealthComponents(BulletAttack bulletAttack, List<object> value) => bulletAttack.bapi_ignoredHealthComponentList = value;
     public static bool GetIgnoreHitTargets(BulletAttack bulletAttack) => bulletAttack.bapi_ignoreHitTargets;
-    public static void SetForceMassIsOne(BulletAttack bulletAttack, bool value) => bulletAttack.bapi_forceMassIsOne = value;
-    public static bool GetForceMassIsOne(BulletAttack bulletAttack) => bulletAttack.bapi_forceMassIsOne;
-    public static void SetForceMassIsOne(BlastAttack blastAttack, bool value) => blastAttack.bapi_forceMassIsOne = value;
-    public static bool GetForceMassIsOne(BlastAttack blastAttack) => blastAttack.bapi_forceMassIsOne;
-    public static void SetForceMassIsOne(ref BlastAttack.BlastAttackDamageInfo blastAttackDamageInfo, bool value) => blastAttackDamageInfo.bapi_forceMassIsOne = value;
-    public static bool GetForceMassIsOne(ref BlastAttack.BlastAttackDamageInfo blastAttackDamageInfo) => blastAttackDamageInfo.bapi_forceMassIsOne;
-    public static void SetForceMassIsOne(DamageInfo damageInfo, bool value) => damageInfo.bapi_forceMassIsOne = value;
-    public static bool GetForceMassIsOne(DamageInfo damageInfo) => damageInfo.bapi_forceMassIsOne;
-    public static void SetForceAlwaysApply(BulletAttack bulletAttack, bool value) => bulletAttack.bapi_forceAlwaysApply = value;
-    public static bool GetForceAlwaysApply(BulletAttack bulletAttack) => bulletAttack.bapi_forceAlwaysApply;
-    public static void SetForceAlwaysApply(BlastAttack blastAttack, bool value) => blastAttack.bapi_forceAlwaysApply = value;
-    public static bool GetForceAlwaysApply(BlastAttack blastAttack) => blastAttack.bapi_forceAlwaysApply;
-    public static void SetForceAlwaysApply(ref BlastAttack.BlastAttackDamageInfo blastAttackDamageInfo, bool value) => blastAttackDamageInfo.bapi_forceAlwaysApply = value;
-    public static bool GetForceAlwaysApply(ref BlastAttack.BlastAttackDamageInfo blastAttackDamageInfo) => blastAttackDamageInfo.bapi_forceAlwaysApply;
-    public static void SetForceAlwaysApply(DamageInfo damageInfo, bool value) => damageInfo.bapi_forceAlwaysApply = value;
-    public static bool GetForceAlwaysApply(DamageInfo damageInfo) => damageInfo.bapi_forceAlwaysApply;
-    public static void SetForceDisableAirControlUntilCollision(BulletAttack bulletAttack, bool value) => bulletAttack.bapi_forceDisableAirControlUntilCollision = value;
-    public static bool GetForceDisableAirControlUntilCollision(BulletAttack bulletAttack) => bulletAttack.bapi_forceDisableAirControlUntilCollision;
-    public static void SetForceDisableAirControlUntilCollision(BlastAttack blastAttack, bool value) => blastAttack.bapi_forceDisableAirControlUntilCollision = value;
-    public static bool GetForceDisableAirControlUntilCollision(BlastAttack blastAttack) => blastAttack.bapi_forceDisableAirControlUntilCollision;
-    public static void SetForceDisableAirControlUntilCollision(ref BlastAttack.BlastAttackDamageInfo blastAttackDamageInfo, bool value) => blastAttackDamageInfo.bapi_forceDisableAirControlUntilCollision = value;
-    public static bool GetForceDisableAirControlUntilCollision(ref BlastAttack.BlastAttackDamageInfo blastAttackDamageInfo) => blastAttackDamageInfo.bapi_forceDisableAirControlUntilCollision;
-    public static void SetForceDisableAirControlUntilCollision(DamageInfo damageInfo, bool value) => damageInfo.bapi_forceDisableAirControlUntilCollision = value;
-    public static bool GetForceDisableAirControlUntilCollision(DamageInfo damageInfo) => damageInfo.bapi_forceDisableAirControlUntilCollision;
+    public static void SetForceMassIsOne(BulletAttack bulletAttack, bool value) { }
+    public static bool GetForceMassIsOne(BulletAttack bulletAttack) => false;
+    public static void SetForceMassIsOne(BlastAttack blastAttack, bool value) { }
+    public static bool GetForceMassIsOne(BlastAttack blastAttack) => false;
+    public static void SetForceMassIsOne(ref BlastAttack.BlastAttackDamageInfo blastAttackDamageInfo, bool value) { }
+    public static bool GetForceMassIsOne(ref BlastAttack.BlastAttackDamageInfo blastAttackDamageInfo) => false;
+    public static void SetForceMassIsOne(DamageInfo damageInfo, bool value) { }
+    public static bool GetForceMassIsOne(DamageInfo damageInfo) => false;
+    public static void SetForceAlwaysApply(BulletAttack bulletAttack, bool value) { }
+    public static bool GetForceAlwaysApply(BulletAttack bulletAttack) => false;
+    public static void SetForceAlwaysApply(BlastAttack blastAttack, bool value) { }
+    public static bool GetForceAlwaysApply(BlastAttack blastAttack) => false;
+    public static void SetForceAlwaysApply(ref BlastAttack.BlastAttackDamageInfo blastAttackDamageInfo, bool value) { }
+    public static bool GetForceAlwaysApply(ref BlastAttack.BlastAttackDamageInfo blastAttackDamageInfo) => false;
+    public static void SetForceAlwaysApply(DamageInfo damageInfo, bool value) { }
+    public static bool GetForceAlwaysApply(DamageInfo damageInfo) => false;
+    public static void SetForceDisableAirControlUntilCollision(BulletAttack bulletAttack, bool value) { }
+    public static bool GetForceDisableAirControlUntilCollision(BulletAttack bulletAttack) => false;
+    public static void SetForceDisableAirControlUntilCollision(BlastAttack blastAttack, bool value) { }
+    public static bool GetForceDisableAirControlUntilCollision(BlastAttack blastAttack) => false;
+    public static void SetForceDisableAirControlUntilCollision(ref BlastAttack.BlastAttackDamageInfo blastAttackDamageInfo, bool value) { }
+    public static bool GetForceDisableAirControlUntilCollision(ref BlastAttack.BlastAttackDamageInfo blastAttackDamageInfo) => false;
+    public static void SetForceDisableAirControlUntilCollision(DamageInfo damageInfo, bool value) { }
+    public static bool GetForceDisableAirControlUntilCollision(DamageInfo damageInfo) => false;
     public static void SetBonusForce(BulletAttack bulletAttack, Vector3 value) => bulletAttack.bapi_bonusForce = value;
     public static Vector3 GetBonusForce(BulletAttack bulletAttack) => bulletAttack.bapi_bonusForce;
     public static void SetIgnoreHitTargets(BulletAttack bulletAttack, bool value) => bulletAttack.bapi_ignoreHitTargets = value;

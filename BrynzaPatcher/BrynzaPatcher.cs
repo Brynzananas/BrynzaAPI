@@ -23,11 +23,11 @@ internal static class Ror2Patcher
         //PatchEntityStateMachine(assembly);
         //PatchSkillDef(assembly);
         PatchBulletAttack(assembly);
-        PatchBlastAttack(assembly);
+        //PatchBlastAttack(assembly);
         PatchCharacterBody(assembly);
         PatchCharacterModel(assembly);
         PatchRow(assembly);
-        PatchDamageInfo(assembly);
+        //PatchDamageInfo(assembly);
         PatchLoadoutPanelController(assembly);
         PatchAimAnimator(assembly);
         PatchEffectDef(assembly);
@@ -93,9 +93,9 @@ internal static class Ror2Patcher
         {
             bulletAttack.Fields.Add(new FieldDefinition("bapi_ignoredHealthComponentList", FieldAttributes.Public, assembly.MainModule.ImportReference(typeof(List<object>))));
             bulletAttack.Fields.Add(new FieldDefinition("bapi_ignoreHitTargets", FieldAttributes.Public, assembly.MainModule.ImportReference(typeof(bool))));
-            bulletAttack.Fields.Add(new FieldDefinition("bapi_forceMassIsOne", FieldAttributes.Public, assembly.MainModule.ImportReference(typeof(bool))));
-            bulletAttack.Fields.Add(new FieldDefinition("bapi_forceAlwaysApply", FieldAttributes.Public, assembly.MainModule.ImportReference(typeof(bool))));
-            bulletAttack.Fields.Add(new FieldDefinition("bapi_forceDisableAirControlUntilCollision", FieldAttributes.Public, assembly.MainModule.ImportReference(typeof(bool))));
+            //bulletAttack.Fields.Add(new FieldDefinition("bapi_forceMassIsOne", FieldAttributes.Public, assembly.MainModule.ImportReference(typeof(bool))));
+            //bulletAttack.Fields.Add(new FieldDefinition("bapi_forceAlwaysApply", FieldAttributes.Public, assembly.MainModule.ImportReference(typeof(bool))));
+            //bulletAttack.Fields.Add(new FieldDefinition("bapi_forceDisableAirControlUntilCollision", FieldAttributes.Public, assembly.MainModule.ImportReference(typeof(bool))));
             bulletAttack.Fields.Add(new FieldDefinition("bapi_bonusForce", FieldAttributes.Public, assembly.MainModule.ImportReference(typeof(Vector3))));
             bulletAttack.Fields.Add(new FieldDefinition("bapi_noWeaponIfOwner", FieldAttributes.Public, assembly.MainModule.ImportReference(typeof(bool))));
         }
@@ -165,6 +165,8 @@ internal static class Ror2Patcher
             characterMotor.Fields.Add(new FieldDefinition("bapi_bunnyHop", FieldAttributes.Public, assembly.MainModule.ImportReference(typeof(bool))));
             characterMotor.Fields.Add(new FieldDefinition("bapi_wallJumpCount", FieldAttributes.Public, assembly.MainModule.ImportReference(typeof(int))));
             characterMotor.Fields.Add(new FieldDefinition("bapi_airControlFromVelocityAdd", FieldAttributes.Public, assembly.MainModule.ImportReference(typeof(float))));
+            characterMotor.Fields.Add(new FieldDefinition("bapi_useMaxAirVelocity", FieldAttributes.Public, assembly.MainModule.ImportReference(typeof(bool))));
+            characterMotor.Fields.Add(new FieldDefinition("bapi_maxAirVelocity", FieldAttributes.Public, assembly.MainModule.ImportReference(typeof(float))));
         }
     }
     private static void PatchConfigEntry(ref AssemblyDefinition assembly)
