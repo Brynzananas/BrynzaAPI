@@ -81,7 +81,7 @@ namespace BrynzaAPI
     {
         public const string ModGuid = "com.brynzananas.brynzaapi";
         public const string ModName = "Brynza API";
-        public const string ModVer = "1.8.0";
+        public const string ModVer = "1.8.1";
         public static FixedConditionalWeakTable<CharacterMotor, List<OnHitGroundServerDelegate>> onHitGroundServerDictionary = new FixedConditionalWeakTable<CharacterMotor, List<OnHitGroundServerDelegate>>();
         public delegate void OnHitGroundServerDelegate(CharacterMotor characterMotor, ref CharacterMotor.HitGroundInfo hitGroundInfo);
         public static bool proejctilesConfiguratorEnabled { get; private set; }
@@ -358,10 +358,13 @@ namespace BrynzaAPI
             if (self.isGrounded)
             {
                 self.SetMaxAirVelocity(0f);
+                return;
             }
-            else if (self.velocity.sqrMagnitude > self.GetMaxAirVelocity() * self.GetMaxAirVelocity())
+            Vector3 vector3 = self.velocity;
+            if (!self.isFlying) vector3.y = 0f;
+            if (vector3.sqrMagnitude > self.GetMaxAirVelocity() * self.GetMaxAirVelocity())
             {
-                self.SetMaxAirVelocity(self.velocity.magnitude);
+                self.SetMaxAirVelocity(vector3.magnitude);
             }
         }
 
@@ -2107,6 +2110,7 @@ private void BulletAttack_Fire(ILContext il)
             }
         }
         public static float strafeMultiplier = 15f;
+        public static float maxAirVelocityReduceValue = 6f;
         private static void CharacterMotor_PreMove(ILContext il)
         {
             ILCursor c = new ILCursor(il);
@@ -2157,13 +2161,9 @@ private void BulletAttack_Fire(ILContext il)
                     }
                     else if (characterMotor.GetUseMaxAirVelocityEffective())
                     {
-                        return wishDirection * characterMotor.GetMaxAirVelocity();
-                        //float dotProduct = velocity == Vector3.zero ? 0f : (Vector3.Dot(velocity.normalized, characterMotor.moveDirection) + 1f) / 2f;
-                        Vector3 vector3 = Vector3.Lerp(wishDirection * characterMotor.GetMaxAirVelocity(), wishDirection * Mathf.Sqrt(Mathf.Max(velocity.sqrMagnitude, vector31.sqrMagnitude)), velocity.sqrMagnitude / (characterMotor.GetMaxAirVelocity() * characterMotor.GetMaxAirVelocity()));
-                        //Chat.AddMessage("Wish Vector: " + wishDirection.ToString());
-                        //Chat.AddMessage("Max Air Velocity: " + characterMotor.GetMaxAirVelocity().ToString());
-                        //Chat.AddMessage("Move Vector: " + vector3.ToString());
-                        return vector3;
+                        float value = (characterMotor.GetMaxAirVelocity());
+                        if (value * value < vector31.sqrMagnitude) return vector31;
+                        return wishDirection * value;
                     }
                     return vector31;
                 }
@@ -3251,6 +3251,16 @@ private void BulletAttack_Fire(ILContext il)
             public List<BuffDef> buffsWhileMidair;
             public DelegateHolder<OnRocketJumpApplied> onRocketJumpApplied;
         }
+        public struct RocketJumpApplyInfo
+        {
+            public float force;
+            public AnimationCurve falloff;
+            public AnimationCurve verticalForceReduction;
+            public bool resetNegativeVerticalVelocity;
+            public float radiusMultiplier;
+            public PhysForceFlags physForceFlags;
+            public List<BuffDef> clientBuffsWhileMidair;
+        }
     }
     /// <summary>
     /// Projectile rotates towards owner point of view or view direction if there is no point.
@@ -3329,6 +3339,7 @@ private void BulletAttack_Fire(ILContext il)
             }
         }
     }
+    [Serializable]
     public class DelegateDef<T> : ScriptableObject where T : Delegate
     {
         public T @delegate;
