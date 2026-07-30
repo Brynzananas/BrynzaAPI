@@ -7,5 +7,6 @@ namespace RoR2
     public class SkillLocator
     {
         public List<object> bapi_bonusSkills = new List<object>();
+        public GenericSkill bapi_sprintSkill;
     }
 }

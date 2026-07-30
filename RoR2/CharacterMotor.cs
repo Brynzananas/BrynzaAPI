@@ -19,5 +19,6 @@ namespace RoR2
         public float bapi_airControlFromVelocityAdd;
         public bool bapi_useMaxAirVelocity;
         public float bapi_maxAirVelocity;
+        public Vector3 bapi_positionDelta;
     }
 }

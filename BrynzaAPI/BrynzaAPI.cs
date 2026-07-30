@@ -5,6 +5,7 @@ using BrynzaAPI.Interop;
 using EntityStates;
 using HarmonyLib;
 using HG;
+using JetBrains.Annotations;
 using KinematicCharacterController;
 using Mono.Cecil.Cil;
 using MonoMod.Cil;
@@ -25,6 +26,7 @@ using RoR2;
 using RoR2.CameraModes;
 using RoR2.ContentManagement;
 using RoR2.ConVar;
+using RoR2.Navigation;
 using RoR2.Networking;
 using RoR2.Projectile;
 using RoR2.Skills;
@@ -47,6 +49,7 @@ using UnityEngine.AddressableAssets;
 using UnityEngine.Events;
 using UnityEngine.Networking;
 using UnityEngine.SceneManagement;
+using UnityEngine.Serialization;
 using UnityEngine.UI;
 #if UNITY_EDITOR
 using UnityEditor;
@@ -81,7 +84,7 @@ namespace BrynzaAPI
     {
         public const string ModGuid = "com.brynzananas.brynzaapi";
         public const string ModName = "Brynza API";
-        public const string ModVer = "1.8.1";
+        public const string ModVer = "1.9.0";
         public static FixedConditionalWeakTable<CharacterMotor, List<OnHitGroundServerDelegate>> onHitGroundServerDictionary = new FixedConditionalWeakTable<CharacterMotor, List<OnHitGroundServerDelegate>>();
         public delegate void OnHitGroundServerDelegate(CharacterMotor characterMotor, ref CharacterMotor.HitGroundInfo hitGroundInfo);
         public static bool proejctilesConfiguratorEnabled { get; private set; }
@@ -218,10 +221,15 @@ namespace BrynzaAPI
             get { return _tokenKeywords; }
             set { tokenKeywordsKeys = value.Keys.ToArray(); _tokenKeywords = value; }
         }
+        public delegate void DynamicFloatStat(CharacterBody characterBody, ref float value);
+        public static event DynamicFloatStat GetDynamicRegen;
+        public static event DynamicFloatStat GetDynamicMoveSpeed;
+        public static event DynamicFloatStat GetDynamicAttackSpeed;
+        public delegate void PickupCreated(GenericPickupController.CreatePickupInfo createPickupInfo, GameObject pickup);
+        public static event PickupCreated OnPickupCreated;
         private Harmony harmonyPatcher;
         public static BaseUnityPlugin instance { get; private set; }
         public static ManualLogSource Log { get; private set; }
-
         public void Awake()
         {
             instance = this;
@@ -277,12 +285,7 @@ namespace BrynzaAPI
         {
             if (hooksEnabled) return;
             hooksEnabled = true;
-            IL.RoR2.Skills.SkillDef.OnFixedUpdate += SkillDef_OnFixedUpdate;
-            IL.RoR2.Skills.SkillDef.OnExecute += SkillDef_OnExecute;
-            IL.RoR2.UI.CrosshairManager.UpdateCrosshair += CrosshairManager_UpdateCrosshair1;
-            IL.RoR2.CameraModes.CameraModePlayerBasic.UpdateInternal += CameraModePlayerBasic_UpdateInternal;
             IL.RoR2.CameraModes.CameraModePlayerBasic.CollectLookInputInternal += CameraModePlayerBasic_CollectLookInputInternal;
-            On.EntityStates.GenericCharacterMain.HandleMovements += GenericCharacterMain_HandleMovements;
             IL.RoR2.GenericSkill.Awake += GenericSkill_Awake;
             //On.RoR2.CharacterBody.RecalculateStats += CharacterBody_RecalculateStats1;
             //On.RoR2.GenericSkill.RecalculateMaxStock += GenericSkill_RecalculateMaxStock;
@@ -347,11 +350,173 @@ namespace BrynzaAPI
             Hook hook3 = new Hook(typeof(CameraRigController).GetPropertyGetter(nameof(CameraRigController.isControlAllowed)), typeof(BrynzaAPI).GetMethod(nameof(CameraRigController_isControlAllowed), BindingFlags.NonPublic | BindingFlags.Static));
             Hook hook4 = new Hook(typeof(CameraRigController).GetPropertyGetter(nameof(CameraRigController.isHudAllowed)), typeof(BrynzaAPI).GetMethod(nameof(CameraRigController_isControlAllowed), BindingFlags.NonPublic | BindingFlags.Static));
             On.RoR2.CharacterMotor.FixedUpdate += CharacterMotor_FixedUpdate;
+            Hook hook5 = new Hook(AccessTools.Method(typeof(Interactor), "Awake"), typeof(BrynzaAPI).GetMethod(nameof(Interactor_Awake), BindingFlags.NonPublic | BindingFlags.Static));
+            IL.RoR2.CharacterMotor.FixedUpdate += CharacterMotor_FixedUpdate1;
+            Hook hook6 = new Hook(typeof(ClassicStageInfo).GetMethod(nameof(ClassicStageInfo.RebuildCards), BindingFlags.NonPublic | BindingFlags.Instance), typeof(BrynzaAPI).GetMethod(nameof(ClassicStageInfo_RebuildCards), BindingFlags.NonPublic | BindingFlags.Static), new HookConfig { Priority = int.MaxValue });
+            //On.RoR2.ClassicStageInfo.RebuildCards += ClassicStageInfo_RebuildCards;
+            Hook hook7 = new Hook(AccessTools.Method(typeof(Inventory), "Awake"), typeof(BrynzaAPI).GetMethod(nameof(Inventory_Awake), BindingFlags.NonPublic | BindingFlags.Static));
+            Hook hook8 = new Hook(typeof(CharacterBody).GetPropertyGetter(nameof(CharacterBody.regen)), typeof(BrynzaAPI).GetMethod(nameof(DynamicRegenHook), BindingFlags.NonPublic | BindingFlags.Static));
+            Hook hook9 = new Hook(typeof(CharacterBody).GetPropertyGetter(nameof(CharacterBody.attackSpeed)), typeof(BrynzaAPI).GetMethod(nameof(DynamicAttackSpeedHook), BindingFlags.NonPublic | BindingFlags.Static));
+            Hook hook10 = new Hook(typeof(CharacterBody).GetPropertyGetter(nameof(CharacterBody.moveSpeed)), typeof(BrynzaAPI).GetMethod(nameof(DynamicMoveSpeedHook), BindingFlags.NonPublic | BindingFlags.Static));
+            On.RoR2.CharacterBody.RecalculateStats += CharacterBody_RecalculateStats2;
+            //IL.RoR2.PickupDropletController.CreatePickupDroplet_CreatePickupInfo_Vector3_Vector3 += PickupDropletController_CreatePickupDroplet_CreatePickupInfo_Vector3_Vector3;
+            IL.RoR2.GenericPickupController.CreatePickup += GenericPickupController_CreatePickup;
+            On.EntityStates.GenericCharacterMain.PerformInputs += GenericCharacterMain_PerformInputs;
+            CharacterBodyAPI.AddAlwaysSprintCondition(AlwaysSprint);
             RoR2Application.onLoadFinished += OnRoR2Loaded;
             harmonyPatcher = new Harmony(ModGuid);
             harmonyPatcher.CreateClassProcessor(typeof(Patches)).Patch();
         }
 
+        private bool AlwaysSprint(CharacterBody characterBody) => characterBody.HasModdedBodyFlag(Assets.SprintAllTime);
+
+        private void GenericPickupController_CreatePickup(ILContext il)
+        {
+            ILCursor c = new ILCursor(il);
+            int index = 0;
+            if (
+                !c.TryGotoNext(MoveType.Before,
+                    x => x.MatchLdloc(out index),
+                    x => x.MatchCall<NetworkServer>(nameof(NetworkServer.Spawn))
+                ))
+            {
+                Log.LogError(il.Method.Name + " IL Hook 1 failed!");
+                return;
+            }
+            c.Emit(OpCodes.Ldloc, index);
+            c.Emit(OpCodes.Ldarg_0);
+            c.EmitDelegate(HandlePickupStuff);
+        }
+
+        private void GenericCharacterMain_PerformInputs(On.EntityStates.GenericCharacterMain.orig_PerformInputs orig, GenericCharacterMain self)
+        {
+            orig(self);
+            if (!self.isAuthority || !self.skillLocator || !self.skillLocator.GetSprintSkill()) return;
+            self.HandleSkill(self.skillLocator.GetSprintSkill(), ref self.inputBank.sprint);
+        }
+        private void PickupDropletController_CreatePickupDroplet_CreatePickupInfo_Vector3_Vector3(ILContext il)
+        {
+            ILCursor c = new ILCursor(il);
+            if (
+                !c.TryGotoNext(MoveType.Before,
+                    x => x.MatchCall<NetworkServer>(nameof(NetworkServer.Spawn))
+                ))
+            {
+                Log.LogError(il.Method.Name + " IL Hook 1 failed!");
+                return;
+            }
+            c.Emit(OpCodes.Dup);
+            c.Emit(OpCodes.Ldarg_0);
+            c.EmitDelegate(HandlePickupStuff);
+        }
+        private static void HandlePickupStuff(GameObject gameObject, ref GenericPickupController.CreatePickupInfo createPickupInfo)
+        {
+            OnPickupCreated?.Invoke(createPickupInfo, gameObject);
+        }
+
+        private static bool useDynamicStats;
+        public static bool useMoveSpeedDynamicStat;
+        private void CharacterBody_RecalculateStats2(On.RoR2.CharacterBody.orig_RecalculateStats orig, CharacterBody self)
+        {
+            useDynamicStats = false;
+            useMoveSpeedDynamicStat = false;
+            orig(self);
+            useDynamicStats = true;
+        }
+
+        internal static Dictionary<string, object> keyValuePairs1 = [];
+        private static void ClassicStageInfo_RebuildCards(On.RoR2.ClassicStageInfo.orig_RebuildCards orig, ClassicStageInfo self, DirectorCardCategorySelection forcedMonsterCategory, DirectorCardCategorySelection forcedInteractableCategory)
+        {
+            try
+            {
+                if (self && self.monsterDccsPool && !self.monsterDccsPool.GetAppliedChanges())
+                {
+                    foreach (DccsPool.Category category in self.monsterDccsPool.poolCategories)
+                    {
+                        foreach (DccsPool.PoolEntry poolEntry in category.alwaysIncluded)
+                        {
+                            HandlePoolEntry(poolEntry);
+                        }
+                        foreach (DccsPool.PoolEntry poolEntry in category.includedIfConditionsMet)
+                        {
+                            HandlePoolEntry(poolEntry);
+                        }
+                        foreach (DccsPool.PoolEntry poolEntry in category.includedIfNoConditionsMet)
+                        {
+                            HandlePoolEntry(poolEntry);
+                        }
+                    }
+                    self.monsterDccsPool.SetAppliedChanges(true);
+                }
+            }
+            catch (Exception e)
+            {
+                Log.LogError("Go tell Brynzananas in #tech-support that his smartass auto director card generator broke");
+                Log.LogError(e);
+            }
+            orig(self, forcedMonsterCategory, forcedInteractableCategory);
+        }
+        private static void HandlePoolEntry(DccsPool.PoolEntry poolEntry)
+        {
+            DirectorCardCategorySelection directorCardCategorySelection = poolEntry.dccs;
+            if (!directorCardCategorySelection) return;
+            for (int i = 0; i < directorCardCategorySelection.categories.Length; i++)
+            {
+                ref DirectorCardCategorySelection.Category category = ref directorCardCategorySelection.categories[i];
+                ref DirectorCard[] directorCards = ref category.cards;
+                if (directorCards == null || directorCards.Length == 0) continue;
+                foreach (DirectorCard directorCard in directorCards)
+                {
+                    SpawnCard spawnCard = directorCard.spawnCard;
+                    if (!spawnCard && directorCard.spawnCardReference != null)
+                    {
+                        spawnCard = directorCard.spawnCardReference.Asset ? directorCard.spawnCardReference.Asset as SpawnCard : directorCard.spawnCardReference.LoadAssetAsync<SpawnCard>().WaitForCompletion();
+                    }
+                    if (!spawnCard || !spawnCard.prefab) continue;
+                    CharacterSpawnCard characterSpawnCard = spawnCard as CharacterSpawnCard;
+                    if (!characterSpawnCard) continue;
+                    if (keyValuePairs1.TryGetValue(spawnCard.prefab.name, out object spawnCard1))
+                    {
+                        CharacterSpawnCardMirror characterSpawnCardMirror = spawnCard1 as CharacterSpawnCardMirror;
+                        if (!characterSpawnCardMirror) continue;
+                        DirectorCard directorCard1 = characterSpawnCardMirror.GetDirectorCard(directorCard);
+                        directorCard1.spawnCard = characterSpawnCardMirror.GetSpawnCard(characterSpawnCard);
+                        int length = category.cards.Length;
+                        Array.Resize(ref category.cards, length + 1);
+                        category.cards[length] = directorCard1;
+                    }
+                }
+            }
+        }
+        private void CharacterMotor_FixedUpdate1(ILContext il)
+        {
+            ILCursor c = new ILCursor(il);
+            if (
+                 c.TryGotoNext(MoveType.Before,
+                     x => x.MatchCall(typeof(Vector3).GetPropertyGetter(nameof(Vector3.sqrMagnitude)))
+                 ))
+            {
+                c.Emit(OpCodes.Dup);
+                c.Emit(OpCodes.Ldarg_0);
+                c.EmitDelegate(IShouldPasteMethodsWithAccessToolsInteadOfThis);
+                void IShouldPasteMethodsWithAccessToolsInteadOfThis(ref Vector3 vector3, CharacterMotor characterMotor) => characterMotor.SetPositionDelta(vector3 * -1f / Time.fixedDeltaTime);
+            }
+            else
+            {
+                Log.LogError(il.Method.Name + " IL Hook failed!");
+            }
+        }
+
+        private static void Interactor_Awake(Action<Interactor> action, Interactor interactor)
+        {
+            action(interactor);
+            interactor.SetCharacterBody(interactor.GetComponent<CharacterBody>());
+        }
+        private static void Inventory_Awake(Action<Inventory> action, Inventory inventory)
+        {
+            action(inventory);
+            inventory.SetCharacterMaster(inventory.GetComponent<CharacterMaster>());
+        }
         private void CharacterMotor_FixedUpdate(On.RoR2.CharacterMotor.orig_FixedUpdate orig, CharacterMotor self)
         {
             orig(self);
@@ -390,9 +555,25 @@ namespace BrynzaAPI
                     Log.LogError(il.Method.Name + " IL Hook " + i1 + " failed!");
                 }
             }
-
         }
-
+        private static float DynamicAttackSpeedHook(Func<CharacterBody, float> orig, CharacterBody self)
+        {
+            float regen = orig(self);
+            if (useDynamicStats) GetDynamicAttackSpeed?.Invoke(self, ref regen);
+            return regen;
+        }
+        private static float DynamicMoveSpeedHook(Func<CharacterBody, float> orig, CharacterBody self)
+        {
+            float regen = orig(self);
+            if (useMoveSpeedDynamicStat) GetDynamicMoveSpeed?.Invoke(self, ref regen);
+            return regen;
+        }
+        private static float DynamicRegenHook(Func<CharacterBody, float> orig, CharacterBody self)
+        {
+            float regen = orig(self);
+            if (useDynamicStats) GetDynamicRegen?.Invoke(self, ref regen);
+            return regen;
+        }
         private static bool CameraRigController_isControlAllowed(Func<CameraRigController, bool> orig, CameraRigController self)
         {
             if (self.targetBody && self.targetBody.HasModdedBodyFlag(Assets.FirstPerson)) return true;
@@ -469,12 +650,7 @@ namespace BrynzaAPI
         {
             if (!hooksEnabled) return;
             hooksEnabled = false;
-            IL.RoR2.Skills.SkillDef.OnFixedUpdate -= SkillDef_OnFixedUpdate;
-            IL.RoR2.Skills.SkillDef.OnExecute -= SkillDef_OnExecute;
-            IL.RoR2.UI.CrosshairManager.UpdateCrosshair -= CrosshairManager_UpdateCrosshair1;
-            IL.RoR2.CameraModes.CameraModePlayerBasic.UpdateInternal -= CameraModePlayerBasic_UpdateInternal;
             IL.RoR2.CameraModes.CameraModePlayerBasic.CollectLookInputInternal -= CameraModePlayerBasic_CollectLookInputInternal;
-            On.EntityStates.GenericCharacterMain.HandleMovements -= GenericCharacterMain_HandleMovements;
             IL.RoR2.GenericSkill.Awake -= GenericSkill_Awake;
             IL.RoR2.CharacterMotor.PreMove -= CharacterMotor_PreMove;
             IL.RoR2.Projectile.ProjectileExplosion.DetonateServer -= ProjectileExplosion_DetonateServer;
@@ -1256,13 +1432,7 @@ namespace BrynzaAPI
                 Log.LogError(il.Method.Name + " IL Hook failed!");
             }
         }
-
-        private static void GenericCharacterMain_HandleMovements(On.EntityStates.GenericCharacterMain.orig_HandleMovements orig, EntityStates.GenericCharacterMain self)
-        {
-            if (self.characterBody && self.characterBody.HasModdedBodyFlag(Assets.SprintAllTime))
-                self.sprintInputReceived = true;
-            orig(self);
-        }
+            
 
         private static void CameraModePlayerBasic_CollectLookInputInternal(ILContext il)
         {
@@ -1284,140 +1454,6 @@ namespace BrynzaAPI
             else
             {
                 Log.LogError(il.Method.Name + " IL Hook 1 failed!");
-            }
-            ILLabel iLLabel = null;
-            if (c.TryGotoNext(
-                    x => x.MatchLdsfld<CameraRigController>(nameof(CameraRigController.enableSprintSensitivitySlowdown)),
-                    x => x.MatchCallvirt<BoolConVar>("get_value"),
-                    x => x.MatchBrfalse(out iLLabel)
-                ))
-            {
-                c.Emit(OpCodes.Ldarg_2);
-                c.Emit<CameraModeBase.CameraModeContext>(OpCodes.Ldflda, nameof(CameraModeBase.CameraModeContext.targetInfo));
-                c.Emit<CameraModeBase.TargetInfo>(OpCodes.Ldfld, nameof(CameraModeBase.TargetInfo.body));
-                c.EmitDelegate<Func<CharacterBody, bool>>((cb) =>
-                {
-                    return cb ? cb.HasModdedBodyFlag(Assets.SprintAllTime) : false;
-
-                });
-                c.Emit(OpCodes.Brtrue_S, iLLabel);
-            }
-            else
-            {
-                Log.LogError(il.Method.Name + " IL Hook 2 failed!");
-            }
-        }
-
-        private static void SkillDef_OnExecute(ILContext il)
-        {
-            ILCursor c = new ILCursor(il);
-            ILLabel iLLabel = null;
-            if (c.TryGotoNext(
-                    x => x.MatchLdarg(0),
-                    x => x.MatchLdfld<SkillDef>("cancelSprintingOnActivation"),
-                    x => x.MatchBrfalse(out iLLabel)
-                ))
-            {
-                c.Emit(OpCodes.Ldarg_1);
-                c.EmitDelegate<Func<GenericSkill, bool>>((cb) =>
-                {
-                    return cb.characterBody.HasModdedBodyFlag(Assets.SprintAllTime);
-
-                });
-                c.Emit(OpCodes.Brtrue_S, iLLabel);
-            }
-            else
-            {
-                Log.LogError(il.Method.Name + " IL Hook failed!");
-            }
-        }
-
-        private static void SkillDef_OnFixedUpdate(MonoMod.Cil.ILContext il)
-        {
-            ILCursor c = new ILCursor(il);
-            ILLabel iLLabel = null;
-            if (c.TryGotoNext(
-                    x => x.MatchLdarg(1),
-                    x => x.MatchCallvirt<GenericSkill>("get_characterBody"),
-                    x => x.MatchCallvirt<CharacterBody>("get_isSprinting"),
-                    x => x.MatchBrfalse(out iLLabel)
-                ))
-            {
-                c.Emit(OpCodes.Ldarg_1);
-                c.EmitDelegate<Func<GenericSkill, bool>>((cb) =>
-                {
-                    return cb && cb.characterBody ? cb.characterBody.HasModdedBodyFlag(Assets.SprintAllTime) : false;
-
-                });
-                c.Emit(OpCodes.Brtrue_S, iLLabel);
-            }
-            else
-            {
-                Log.LogError(il.Method.Name + " IL Hook failed!");
-            }
-        }
-        private static void CameraModePlayerBasic_UpdateInternal(ILContext il)
-        {
-            ILCursor c = new ILCursor(il);
-            ILLabel iLLabel = null;
-            if (
-                c.TryGotoNext(
-                    x => x.MatchLdarg(2),
-                    x => x.MatchLdflda<CameraModeBase.CameraModeContext>("targetInfo"),
-                    x => x.MatchLdfld<CameraModeBase.TargetInfo>("isSprinting"),
-                    x => x.MatchBrfalse(out iLLabel)
-                ))
-            {
-                c.Emit(OpCodes.Ldarg_2);
-                c.EmitDelegate(sus);
-                bool sus(ref CameraModeBase.CameraModeContext cameraModeContext)
-                {
-                    if (cameraModeContext.targetInfo.body != null)
-                    {
-                        return cameraModeContext.targetInfo.body.HasModdedBodyFlag(Assets.SprintAllTime);
-                    }
-                    else
-                    {
-                        return true;
-                    }
-
-                }
-                c.Emit(OpCodes.Brtrue_S, iLLabel);
-            }
-            else
-            {
-                Log.LogError(il.Method.Name + " IL Hook failed!");
-            }
-        }
-        private static void CrosshairManager_UpdateCrosshair1(ILContext il)
-        {
-            ILCursor c = new ILCursor(il);
-            ILLabel iLLabel = null;
-            ILLabel iLLabel2 = null;
-            if (
-                c.TryGotoNext(
-                    x => x.MatchLdarg(0),
-                    x => x.MatchLdfld<CrosshairManager>("cameraRigController"),
-                    x => x.MatchCallvirt<CameraRigController>("get_hasOverride"),
-                    x => x.MatchBrtrue(out iLLabel)
-                )
-                &&
-                c.TryGotoNext(
-                    x => x.MatchLdarg(1),
-                    x => x.MatchCallvirt<CharacterBody>("get_isSprinting"),
-                    x => x.MatchBrfalse(out iLLabel2)
-                ))
-            {
-                c.Emit(OpCodes.Ldarg_1);
-                c.EmitDelegate<Func<CharacterBody, bool>>((cb) =>
-                {
-                    return cb.HasModdedBodyFlag(Assets.SprintAllTime);
-                });
-                c.Emit(OpCodes.Brtrue_S, iLLabel);
-            }
-            else
-            {
-                Log.LogError(il.Method.Name + " IL Hook failed!");
             }
         }
         private static void CameraRigController_SetCameraState1(On.RoR2.CameraRigController.orig_SetCameraState orig, CameraRigController self, CameraState cameraState)
@@ -1676,7 +1712,19 @@ private void GenericSkill_SetBonusStockFromBody(ILContext il)
             }
             else
             {
-                Log.LogError(il.Method.Name + " IL Hook failed!");
+                Log.LogError(il.Method.Name + " IL Hook 1 failed!");
+            }
+            c = new ILCursor(il);
+            if (c.TryGotoNext(MoveType.After,
+                    x => x.MatchCall<CharacterBody>("set_moveSpeed")
+                ))
+            {
+                c.Emit(OpCodes.Ldc_I4_1);
+                c.Emit(OpCodes.Stsfld, AccessTools.Field(typeof(BrynzaAPI), nameof(useMoveSpeedDynamicStat)));
+            }
+            else
+            {
+                Log.LogError(il.Method.Name + " IL Hook 2 failed!");
             }
         }
 
@@ -2139,6 +2187,22 @@ private void BulletAttack_Fire(ILContext il)
             else
             {
                 Log.LogError(il.Method.Name + " IL Hook 1 failed!");
+            }
+            c = new ILCursor(il);
+            if (c.TryGotoNext(MoveType.After,
+                    x => x.MatchCall<CharacterMotor>("get_walkSpeed")
+                ))
+            {
+                c.Emit(OpCodes.Ldarg_0);
+                c.EmitDelegate(dumbFix);
+                float dumbFix(float walkSpeed, CharacterMotor characterMotor)
+                {
+                    return characterMotor.body.moveSpeed * characterMotor.walkSpeedPenaltyCoefficient;
+                }
+            }
+            else
+            {
+                Log.LogError(il.Method.Name + " IL Hook 6 failed!");
             }
             c = new ILCursor(il);
             if (c.TryGotoNext(MoveType.After,
@@ -2891,6 +2955,7 @@ private void BulletAttack_Fire(ILContext il)
         public List<LoadoutPanelController.Row> rows = new List<LoadoutPanelController.Row>();
         public Section(string sectionName, Color color)
         {
+            if (!loadoutSectionHolder)  return;
             name = sectionName;
             this.color = color;
             sections.Add(this);
@@ -2900,10 +2965,6 @@ private void BulletAttack_Fire(ILContext il)
             languageTextMeshController.token = name;
             button.onClick.AddListener(SelectSection);
             button.requiredTopLayer = null;
-            void SelectSection()
-            {
-                Utils.SelectRowsSection(name);
-            }
             ColorBlock colorBlock = button.colors;
             color.a = 0.2f;
             colorBlock.normalColor = color;
@@ -2917,6 +2978,10 @@ private void BulletAttack_Fire(ILContext il)
             if (sections.Contains(this)) sections.Remove(this);
             if (sectionByName.ContainsKey(name)) sectionByName.Remove(name);
             if (button != null) GameObject.Destroy(button.gameObject);
+        }
+        public void SelectSection()
+        {
+            Utils.SelectRowsSection(name);
         }
     }
     /// <summary>
@@ -3339,6 +3404,308 @@ private void BulletAttack_Fire(ILContext il)
             }
         }
     }
+    public abstract class BaseSpawnCardMirror<T> : ScriptableObject where T : SpawnCard
+    {
+        public string targetPrefabName;
+        public GameObject prefab;
+        public float costMultiplier;
+        public bool overrideHullSize;
+        public HullClassification hullSize;
+        public bool overrideNodeGraphType;
+        public MapNodeGroup.GraphType nodeGrapthType;
+        public bool overrideRequiredFlags;
+        public NodeFlags requiredFlags;
+        public bool overrideForbiddenFlags;
+        public NodeFlags forbiddenFlags;
+        public bool overrideEliteRules;
+        public SpawnCard.EliteRules eliteRules;
+        public Dictionary<T, T> spawnCardOriginalToMirrored = [];
+        public Dictionary<DirectorCard, DirectorCard> directorCardOriginalToMirrored = [];
+        public virtual DirectorCard GetDirectorCard(DirectorCard originalDirectorCard)
+        {
+            DirectorCard mirroredDirectorCard;
+            if (directorCardOriginalToMirrored.TryGetValue(originalDirectorCard, out mirroredDirectorCard))
+            {
+
+            }
+            else
+            {
+                mirroredDirectorCard = new DirectorCard
+                {
+                    selectionWeight = originalDirectorCard.selectionWeight,
+                    spawnDistance = originalDirectorCard.spawnDistance,
+                    preventOverhead = originalDirectorCard.preventOverhead,
+                    minimumStageCompletions = originalDirectorCard.minimumStageCompletions,
+                    requiredUnlockableDef = originalDirectorCard.requiredUnlockableDef,
+                    forbiddenUnlockableDef = originalDirectorCard.forbiddenUnlockableDef,
+                };
+                directorCardOriginalToMirrored.Add(originalDirectorCard, mirroredDirectorCard);
+            }
+            return mirroredDirectorCard;
+        }
+        public virtual T GetSpawnCard(T originalSpawnCard)
+        {
+            T mirroredCharacterSpawnCard;
+            if (spawnCardOriginalToMirrored.TryGetValue(originalSpawnCard, out mirroredCharacterSpawnCard))
+            {
+                return mirroredCharacterSpawnCard;
+            }
+            mirroredCharacterSpawnCard = ScriptableObject.CreateInstance<T>();
+            mirroredCharacterSpawnCard.prefab = prefab;
+            (mirroredCharacterSpawnCard as ScriptableObject).name = name;
+            mirroredCharacterSpawnCard.directorCreditCost = (int)((float)originalSpawnCard.directorCreditCost * costMultiplier);
+            if (overrideEliteRules)
+            {
+                mirroredCharacterSpawnCard.eliteRules = eliteRules;
+            }
+            else
+            {
+                mirroredCharacterSpawnCard.eliteRules = originalSpawnCard.eliteRules;
+            }
+            if (overrideRequiredFlags)
+            {
+                mirroredCharacterSpawnCard.requiredFlags = requiredFlags;
+            }
+            else
+            {
+                mirroredCharacterSpawnCard.requiredFlags = originalSpawnCard.requiredFlags;
+            }
+            if (overrideHullSize)
+            {
+                mirroredCharacterSpawnCard.hullSize = hullSize;
+            }
+            else
+            {
+                mirroredCharacterSpawnCard.hullSize = originalSpawnCard.hullSize;
+            }
+            if (overrideNodeGraphType)
+            {
+                mirroredCharacterSpawnCard.nodeGraphType = nodeGrapthType;
+            }
+            else
+            {
+                mirroredCharacterSpawnCard.nodeGraphType = originalSpawnCard.nodeGraphType;
+            }
+            if (overrideForbiddenFlags)
+            {
+                mirroredCharacterSpawnCard.forbiddenFlags = forbiddenFlags;
+            }
+            else
+            {
+                mirroredCharacterSpawnCard.forbiddenFlags = originalSpawnCard.forbiddenFlags;
+            }
+            return mirroredCharacterSpawnCard;
+        }
+        public void Init()
+        {
+            keyValuePairs1.Add(targetPrefabName, this);
+        }
+        public void UpdateDirectorCreditCostForMirroredSpawnCards(float newCostMultiplier)
+        {
+            costMultiplier = newCostMultiplier;
+            foreach (var pair in spawnCardOriginalToMirrored)
+            {
+                T originalSpawnCard = pair.Key;
+                if (!originalSpawnCard) continue;
+                T mirroredSpawnCard = pair.Value;
+                if (!mirroredSpawnCard) continue;
+                mirroredSpawnCard.directorCreditCost = (int)((float)originalSpawnCard.directorCreditCost * costMultiplier);
+            }
+        }
+    }
+    [CreateAssetMenu(menuName = "BrynzaAPI/SpawnCardMirror")]
+    public class SpawnCardMirror : BaseSpawnCardMirror<SpawnCard>
+    {
+        
+    }
+    [CreateAssetMenu(menuName = "BrynzaAPI/CharacterSpawnCardMirror")]
+    public class CharacterSpawnCardMirror : BaseSpawnCardMirror<CharacterSpawnCard>
+    {
+        public bool overrideNoElites;
+        public bool noElites;
+        public bool overrideForbiddenAsBoss;
+        public bool forbiddenAsBoss;
+        public SerializableLoadout loadout;
+        public bool overrideEquipmentToGrant;
+        public EquipmentDef[] equipmentToGrant = [];
+        public bool overrideItemsToGrant;
+        public ItemCountPair[] itemsToGrant = [];
+        public override CharacterSpawnCard GetSpawnCard(CharacterSpawnCard originalSpawnCard)
+        {
+            if (spawnCardOriginalToMirrored.ContainsKey(originalSpawnCard))
+            {
+                return base.GetSpawnCard(originalSpawnCard);
+            }
+            CharacterSpawnCard mirroredCharacterSpawnCard = base.GetSpawnCard(originalSpawnCard);
+            if (overrideForbiddenAsBoss)
+            {
+                mirroredCharacterSpawnCard.forbiddenAsBoss = forbiddenAsBoss;
+            }
+            else
+            {
+                mirroredCharacterSpawnCard.forbiddenAsBoss = originalSpawnCard.forbiddenAsBoss;
+            }
+            if (overrideNoElites)
+            {
+                mirroredCharacterSpawnCard.noElites = noElites;
+            }
+            else
+            {
+                mirroredCharacterSpawnCard.noElites = originalSpawnCard.noElites;
+            }
+            if (overrideEquipmentToGrant)
+            {
+                mirroredCharacterSpawnCard.equipmentToGrant = equipmentToGrant;
+            }
+            else
+            {
+                mirroredCharacterSpawnCard.equipmentToGrant = originalSpawnCard.equipmentToGrant;
+            }
+            if (overrideItemsToGrant)
+            {
+                mirroredCharacterSpawnCard.itemsToGrant = itemsToGrant;
+            }
+            else
+            {
+                mirroredCharacterSpawnCard.itemsToGrant = originalSpawnCard.itemsToGrant;
+            }
+            return mirroredCharacterSpawnCard;
+        }
+    }
+    public class BrynzaMusicTrackController : MonoBehaviour
+    {
+        public static BrynzaMusicTrackController _instance;
+        public static BrynzaMusicTrackController instance
+        {
+            get
+            {
+                if (!_instance)
+                {
+                    _instance = new GameObject("BrynzaMusicTrackController").AddComponent<BrynzaMusicTrackController>();
+                    GameObject.DontDestroyOnLoad(_instance);
+                }
+                return _instance;
+            }
+        }
+        public delegate void MusicAction(object cookie, AkCallbackType type, object info);
+        public static event MusicAction OnMusicAction;
+        private uint eventId;
+        private Dictionary<string, uint> PlayMusicToUINT = [];
+        public void Awake()
+        {
+        }
+        public void Add(BrynzaMusicTrackDef cIMusicTrackDef)
+        {
+            if (!PlayMusicToUINT.ContainsKey(cIMusicTrackDef.playEvent))
+            {
+                eventId = AkSoundEngine.PostEvent(cIMusicTrackDef.playEvent, gameObject, (uint)cIMusicTrackDef.callbackType, MusicCallback, this);
+                AkSoundEngine.SetRTPCValueByPlayingID("Volume_MSX", 0f, eventId);
+                PlayMusicToUINT.Add(cIMusicTrackDef.playEvent, eventId);
+            }
+        }
+        public void Remove(BrynzaMusicTrackDef cIMusicTrackDef)
+        {
+            if (PlayMusicToUINT.ContainsKey(cIMusicTrackDef.playEvent))
+            {
+                AkSoundEngine.CancelEventCallback(eventId);
+                PlayMusicToUINT.Remove(cIMusicTrackDef.playEvent);
+            }
+        }
+        private void MusicCallback(object in_cookie, AkCallbackType in_type, object in_info)
+        {
+            OnMusicAction?.Invoke(in_cookie, in_type, in_info);
+        }
+    }
+    [CreateAssetMenu(menuName = "BrynzaAPI/BrynzaMusicTrackDef")]
+    public class BrynzaMusicTrackDef : MusicTrackDef
+    {
+        public string soundbankName;
+        public string playEvent;
+        public AkCallbackType callbackType;
+        public uint groupID;
+        public uint stateID;
+        public override void Preload()
+        {
+            if (!string.IsNullOrWhiteSpace(soundbankName))
+            {
+                AkSoundEngine.LoadBank(soundbankName, out _);
+            }
+        }
+        public override void Play()
+        {
+            AkSoundEngine.SetState(groupID, stateID);
+            BrynzaMusicTrackController.instance.Add(this);
+        }
+        public override void Stop()
+        {
+            AkSoundEngine.SetState(groupID, 0u);
+            BrynzaMusicTrackController.instance.Remove(this);
+        }
+    }
+    public class DetachedOhject : MonoBehaviour
+    {
+        public Transform detachedObjectTransform;
+        public bool destroyDetachedObjectOnDestroy;
+        public void Awake()
+        {
+            if (detachedObjectTransform) detachedObjectTransform.SetParent(null, true);
+        }
+        public void FixedUpdate()
+        {
+            if (detachedObjectTransform) detachedObjectTransform.position = transform.position;
+        }
+        public void OnDestroy()
+        {
+            if (destroyDetachedObjectOnDestroy && detachedObjectTransform) Destroy(detachedObjectTransform.gameObject);
+        }
+    }
+    public class MusicZone : MonoBehaviour
+    {
+        [SerializeField] private MusicTrackDef _musicTrackDef;
+        public MusicTrackDef musicTrackDef
+        {
+            get => _musicTrackDef;
+            set
+            {
+                _musicTrackDef = value;
+                if (!musicTrackOverride) return;
+                musicTrackOverride.track = value;
+            }
+        }
+        [SerializeField] private int _priority;
+        public int priority
+        {
+            get => _priority;
+            set
+            {
+                _priority = value;
+                if (!musicTrackOverride) return;
+                musicTrackOverride.priority = value;
+            }
+        }
+        private MusicTrackOverride musicTrackOverride;
+        public void OnTriggerEnter(Collider collider)
+        {
+            if (musicTrackOverride) return;
+            CharacterBody characterBody = collider.GetComponent<CharacterBody>();
+            if (!characterBody || !characterBody.isPlayerControlled || !characterBody.hasEffectiveAuthority) return;
+            musicTrackOverride = characterBody.gameObject.AddComponent<MusicTrackOverride>();
+            musicTrackOverride.track = musicTrackDef;
+            musicTrackOverride.priority = priority;
+        }
+        public void OnTriggerExit(Collider collider)
+        {
+            if (!musicTrackOverride) return;
+            CharacterBody characterBody = collider.GetComponent<CharacterBody>();
+            if (!characterBody || !characterBody.isPlayerControlled || !characterBody.hasEffectiveAuthority) return;
+            Destroy(musicTrackOverride);
+            musicTrackOverride = null;
+        }
+        public void OnDestroy()
+        {
+            if (musicTrackOverride) Destroy(musicTrackOverride);
+        }
+    }
     [Serializable]
     public class DelegateDef<T> : ScriptableObject where T : Delegate
     {
@@ -3418,6 +3785,138 @@ private void BulletAttack_Fire(ILContext il)
         {
             delegateHolder.delegates.Remove(@delegate);
             return delegateHolder;
+        }
+    }
+    public class BodyMusicMover : MonoBehaviour
+    {
+        private static int _instanceCount;
+        private static bool eventAdded;
+        private static int instanceCount
+        {
+            get => _instanceCount;
+            set
+            {
+                _instanceCount = value;
+                if (value > 0)
+                {
+                    if (!eventAdded)
+                    {
+                        BrynzaMusicTrackController.OnMusicAction += StaticMusicCallback;
+                        eventAdded = true;
+                    }
+
+                }
+                else
+                {
+                    if (eventAdded)
+                    {
+                        BrynzaMusicTrackController.OnMusicAction -= StaticMusicCallback;
+                        eventAdded = false;
+                    }
+
+                }
+            }
+        }
+        public CharacterMotor characterMotor;
+        public RigidbodyMotor rigidbodyMotor;
+        public float speedCoefficient = 1f;
+        public float durationCoefficient = 1f;
+        private List<MusicMove> musicMoves = [];
+        public delegate void MusicMoveCue(string cueName, float speedCoefficient, float duration);
+        private static event MusicMoveCue _OnMusicMoveCue;
+        public static event MusicMoveCue OnMusicMoveCue
+        {
+            add
+            {
+                instanceCount++;
+                _OnMusicMoveCue += value;
+            }
+            remove
+            {
+                _OnMusicMoveCue -= value;
+                instanceCount--;
+            }
+        }
+        public void OnEnable()
+        {
+            OnMusicMoveCue += AddMove;
+        }
+        public void OnDisable()
+        {
+            OnMusicMoveCue -= AddMove;
+        }
+        private static void StaticMusicCallback(object in_cookie, AkCallbackType in_type, object in_info)
+        {
+            var musicInfo = in_info as AkMusicSyncCallbackInfo;
+            if (musicInfo == null || musicInfo.musicSyncType != AkCallbackType.AK_MusicSyncUserCue) return;
+            string cue = musicInfo.userCueName;
+            if (cue == null || !cue.StartsWith("Move")) return;
+            bool startUnserializing = false;
+            bool past = false;
+            string speedCoefficientString = "";
+            string durationString = "";
+            foreach (char c in cue)
+            {
+                if (c == '/')
+                {
+                    past = true;
+                }
+                else if (startUnserializing)
+                {
+                    if (past)
+                    {
+                        durationString += c;
+                    }
+                    else
+                    {
+                        speedCoefficientString += c;
+                    }
+                }
+                if (c == 'e') startUnserializing = true;
+            }
+            if (float.TryParse(speedCoefficientString, out float speedCoefficient) && float.TryParse(durationString, out float duration))
+            {
+                _OnMusicMoveCue?.Invoke(cue, speedCoefficient, duration);
+            }
+        }
+        public void FixedUpdate()
+        {
+            for (int i = 0; i < musicMoves.Count; i++)
+            {
+                MusicMove musicMove = musicMoves[i];
+                if (characterMotor)
+                {
+                    characterMotor.rootMotion += musicMove.moveVector * Time.fixedDeltaTime;
+                }
+                if (rigidbodyMotor)
+                {
+                    rigidbodyMotor.rootMotion += musicMove.moveVector * Time.fixedDeltaTime;
+                }
+                musicMove.time -= Time.fixedDeltaTime;
+                if (musicMove.time < 0)
+                {
+                    musicMoves.RemoveAt(i);
+                }
+            }
+        }
+        public void AddMove(string cueName, float speedCoefficient, float duration)
+        {
+            CharacterBody characterBody = null;
+            if (characterMotor)
+            {
+                characterBody = characterMotor.body;
+            }
+            else if (rigidbodyMotor)
+            {
+                characterBody = rigidbodyMotor.characterBody;
+            }
+            if (!characterBody || !characterBody.hasEffectiveAuthority) return;
+            musicMoves.Add(new MusicMove { moveVector = UnityEngine.Random.onUnitSphere * characterBody.moveSpeed * speedCoefficient, time = duration * durationCoefficient });
+        }
+        public class MusicMove
+        {
+            public Vector3 moveVector;
+            public float time;
         }
     }
     public class DestroyOnParticleEndAndNoParticles : MonoBehaviour
@@ -3773,6 +4272,8 @@ private void BulletAttack_Fire(ILContext il)
         public static void SetVelocityOverride(this CharacterMotor characterMotor, Vector3 vector3) => BrynzaInterop.SetVelocityOverride(characterMotor, vector3);
         public static Vector3 GetVelocityOverride(this CharacterMotor characterMotor) => BrynzaInterop.GetVelocityOverride(characterMotor);
         public static void SetMaxAirVelocity(this CharacterMotor characterMotor, float value) => BrynzaInterop.SetMaxAirVelocity(characterMotor, value);
+        public static Vector3 GetPositionDelta(this CharacterMotor characterMotor) => BrynzaInterop.GetPositionDelta(characterMotor);
+        public static void SetPositionDelta(this CharacterMotor characterMotor, Vector3 vector3) => BrynzaInterop.SetPositionDelta(characterMotor, vector3);
         public static float GetMaxAirVelocity(this CharacterMotor characterMotor) => BrynzaInterop.GetMaxAirVelocity(characterMotor);
         public static void SetUseMaxAirVelocity(this CharacterMotor characterMotor, bool flag) => BrynzaInterop.SetUseMaxAirVelocity(characterMotor, flag);
         public static bool GetUseMaxAirVelocity(this CharacterMotor characterMotor) => BrynzaInterop.GetUseMaxAirVelocity(characterMotor);
@@ -3867,6 +4368,16 @@ private void BulletAttack_Fire(ILContext il)
         public static void SetScale(this EffectData effectData, Vector3? scale) => BrynzaInterop.SetScale(effectData, scale);
         public static EffectComponent GetEffectInstance(this EffectData effectData) => BrynzaInterop.GetEffectInstance(effectData);
         public static void SetEffectInstance(this EffectData effectData, EffectComponent effectComponent) => BrynzaInterop.SetEffectInstance(effectData, effectComponent);
+        public static CharacterBody GetCharacterBody(this Interactor interactor) => BrynzaInterop.GetCharacterBody(interactor);
+        public static void SetCharacterBody(this Interactor interactor, CharacterBody characterBody) => BrynzaInterop.SetCharacterBody(interactor, characterBody);
+        public static bool GetAppliedChanges(this DccsPool dccsPool) => BrynzaInterop.GetAppliedChanges(dccsPool);
+        public static void SetAppliedChanges(this DccsPool dccsPool, bool value) => BrynzaInterop.SetAppliedChanges(dccsPool, value);
+        public static CharacterMaster GetCharacterMaster(this Inventory inventory) => BrynzaInterop.GetCharacterMaster(inventory);
+        public static void SetCharacterMaster(this Inventory inventory, CharacterMaster characterMaster) => BrynzaInterop.SetCharacterMaster(inventory, characterMaster);
+        public static void SetSprint(this GenericSkill genericSkill, bool value) => BrynzaInterop.SetSprint(genericSkill, value);
+        public static bool GetSprint(this GenericSkill genericSkill) => BrynzaInterop.GetSprint(genericSkill);
+        public static void SetSprintSkill(this SkillLocator skillLocator, GenericSkill value) => BrynzaInterop.SetSprintSkill(skillLocator, value);
+        public static GenericSkill GetSprintSkill(this SkillLocator skillLocator) => BrynzaInterop.GetSprintSkill(skillLocator);
         public static void ResetIgnoredHealthComponents(this BulletAttack bulletAttack)
         {
             if (bulletAttack.GetIgnoredHealthComponents() != null) bulletAttack.GetIgnoredHealthComponents().Clear();

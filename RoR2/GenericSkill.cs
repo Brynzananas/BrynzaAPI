@@ -11,5 +11,6 @@ namespace RoR2
         public List<object> bapi_extraSkills;
         public object bapi_linkedSkill;
         public string bapi_section;
+        public bool bapi_sprint;
     }
 }

@@ -58,6 +58,8 @@ public static class BrynzaInterop
                              .ToList()) : null;
     public static Vector3 GetVelocityOverride(CharacterMotor characterMotor) => characterMotor.bapi_velocityOverride;
     public static void SetVelocityOverride(CharacterMotor characterMotor, Vector3 value) => characterMotor.bapi_velocityOverride = value;
+    public static Vector3 GetPositionDelta(CharacterMotor characterMotor) => characterMotor.bapi_positionDelta;
+    public static void SetPositionDelta(CharacterMotor characterMotor, Vector3 value) => characterMotor.bapi_positionDelta = value;
     public static float GetMaxAirVelocity(CharacterMotor characterMotor) => characterMotor.bapi_maxAirVelocity;
     public static void SetMaxAirVelocity(CharacterMotor characterMotor, float value) => characterMotor.bapi_maxAirVelocity = value;
     public static bool GetKeepVelocityOnMoving(CharacterMotor characterMotor) => characterMotor.bapi_keepVelocityOnMoving;
@@ -134,6 +136,16 @@ public static class BrynzaInterop
     public static Vector3? GetScale(EffectData effectData) => effectData.bapi_scale;
     public static void SetEffectInstance(EffectData effectData, EffectComponent effectComponent) => effectData.bapi_effectInstance = effectComponent;
     public static EffectComponent GetEffectInstance(EffectData effectData) => effectData.bapi_effectInstance;
+    public static CharacterBody GetCharacterBody(Interactor interactor) => interactor.bapi_characterBody;
+    public static void SetCharacterBody(Interactor interactor, CharacterBody characterBody) => interactor.bapi_characterBody = characterBody;
+    public static bool GetAppliedChanges(DccsPool dccsPool) => dccsPool.bapi_appliedChanges;
+    public static void SetAppliedChanges(DccsPool dccsPool, bool value) => dccsPool.bapi_appliedChanges = value;
+    public static CharacterMaster GetCharacterMaster(Inventory inventory) => inventory.bapi_characterMaster;
+    public static void SetCharacterMaster(Inventory inventory, CharacterMaster characterMaster) => inventory.bapi_characterMaster = characterMaster;
+    public static void SetSprint(GenericSkill genericSkill, bool value) => genericSkill.bapi_sprint = value;
+    public static bool GetSprint(GenericSkill genericSkill) => genericSkill.bapi_sprint;
+    public static void SetSprintSkill(SkillLocator skillLocator, GenericSkill value) => skillLocator.bapi_sprintSkill = value;
+    public static GenericSkill GetSprintSkill(SkillLocator skillLocator) => skillLocator.bapi_sprintSkill;
     //public static List<HealthComponent> GetIgnoredHealthComponents(BulletAttack bulletAttack) => bulletAttack.bapi_ignoredHealthComponentList != null ? (Enumerable.Range(0, bulletAttack.bapi_ignoredHealthComponentList.Count)
     //                         .Select(i => (bulletAttack.bapi_ignoredHealthComponentList[i] is HealthComponent ? bulletAttack.bapi_ignoredHealthComponentList[i] as HealthComponent : null))
     //                         .ToList()) : null;

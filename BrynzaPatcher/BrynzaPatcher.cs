@@ -1,5 +1,7 @@
 ﻿using EntityStates;
 using Mono.Cecil;
+using Mono.Cecil.Cil;
+using MonoMod.Utils;
 using System;
 using System.Collections.Generic;
 using UnityEngine;
@@ -17,7 +19,7 @@ internal static class Ror2Patcher
     public static void Patch(AssemblyDefinition assembly)
     {
         PatchGenericSkill(assembly);
-        //PatchSkillLocator(assembly);
+        PatchSkillLocator(assembly);
         PatchCharacterMotor(assembly);
         PatchProjectileExplosion(assembly);
         //PatchEntityStateMachine(assembly);
@@ -31,9 +33,81 @@ internal static class Ror2Patcher
         PatchLoadoutPanelController(assembly);
         PatchAimAnimator(assembly);
         PatchEffectDef(assembly);
+        PatchHighlight(assembly);
+        PatchDccsPool(assembly);
+        PatchInventory(assembly);
+        //PatchSpawnCard(assembly);
         //PatchConfigEntry(ref assembly);
     }
-
+    private static void PatchInteractor(AssemblyDefinition assembly, TypeDefinition characterBody)
+    {
+        TypeDefinition interactor = assembly.MainModule.GetType("RoR2", "Interactor");
+        if (interactor != null)
+        {
+            MethodDefinition methodDefinition = interactor.FindMethod("Awake");
+            if (methodDefinition == null)
+            {
+                methodDefinition = new MethodDefinition("Awake", MethodAttributes.Public, assembly.MainModule.ImportReference(typeof(void)));
+                ILProcessor iLProcessor = methodDefinition.Body.GetILProcessor();
+                iLProcessor.Emit(OpCodes.Ret);
+                interactor.Methods.Add(methodDefinition);
+            }
+            if (characterBody != null)
+            {
+                interactor.Fields.Add(new FieldDefinition("bapi_characterBody", FieldAttributes.Public, assembly.MainModule.ImportReference(characterBody)));
+            }
+        }
+    }
+    private static void PatchInventory(AssemblyDefinition assembly)
+    {
+        TypeDefinition inventory = assembly.MainModule.GetType("RoR2", "Inventory");
+        TypeDefinition characterMaster = assembly.MainModule.GetType("RoR2", "CharacterMaster");
+        if (inventory != null)
+        {
+            MethodDefinition methodDefinition = inventory.FindMethod("Awake");
+            if (methodDefinition == null)
+            {
+                methodDefinition = new MethodDefinition("Awake", MethodAttributes.Public, assembly.MainModule.ImportReference(typeof(void)));
+                ILProcessor iLProcessor = methodDefinition.Body.GetILProcessor();
+                iLProcessor.Emit(OpCodes.Ret);
+                inventory.Methods.Add(methodDefinition);
+            }
+            if (characterMaster != null)
+            {
+                inventory.Fields.Add(new FieldDefinition("bapi_characterMaster", FieldAttributes.Public, assembly.MainModule.ImportReference(characterMaster)));
+            }
+        }
+    }
+    private static void PatchDccsPool(AssemblyDefinition assembly)
+    {
+        TypeDefinition dccsPool = assembly.MainModule.GetType("RoR2", "DccsPool");
+        if (dccsPool != null)
+        {
+            dccsPool.Fields.Add(new FieldDefinition("bapi_appliedChanges", FieldAttributes.Public, assembly.MainModule.ImportReference(typeof(bool))));
+        }
+    }
+    private static void PatchSpawnCard(AssemblyDefinition assembly)
+    {
+        TypeDefinition spawnCard = assembly.MainModule.GetType("RoR2", "SpawnCard");
+        if (spawnCard != null)
+        {
+            spawnCard.Fields.Add(new FieldDefinition("bapi_baseCost", FieldAttributes.Public, assembly.MainModule.ImportReference(typeof(int?))));
+        }
+    }
+    private static void PatchHighlight(AssemblyDefinition assembly)
+    {
+        TypeDefinition highlight = assembly.MainModule.GetType("RoR2", "Highlight");
+        TypeDefinition serializableEntityStateType = assembly.MainModule.GetType("EntityStates", "SerializableEntityStateType");
+        //if (highlight != null && serializableEntityStateType != null)
+        //{
+        FieldDefinition fieldDefinition = highlight.FindField("targetRendererList");
+            FieldDefinition fieldDefinition2 = serializableEntityStateType.FindField("_typeName");
+            //if (fieldDefinition != null && fieldDefinition2 != null)
+            //{
+                fieldDefinition.CustomAttributes.Add(fieldDefinition2.CustomAttributes[0]);
+            //}
+        //}
+    }
     private static void PatchCharacterBody(AssemblyDefinition assembly)
     {
         TypeDefinition characterBody = assembly.MainModule.GetType("RoR2", "CharacterBody");
@@ -45,6 +119,7 @@ internal static class Ror2Patcher
             characterBody.Fields.Add(new FieldDefinition("bapi_clientBuffs", FieldAttributes.Public, assembly.MainModule.ImportReference(typeof(int[]))));
             characterBody.Fields.Add(new FieldDefinition("bapi_lastJumpTime", FieldAttributes.Public, assembly.MainModule.ImportReference(fixedTimeStamp)));
         }
+        PatchInteractor(assembly, characterBody);
     }
     private static void PatchAimAnimator(AssemblyDefinition assembly)
     {
@@ -135,6 +210,7 @@ internal static class Ror2Patcher
             genericSkill.Fields.Add(new FieldDefinition("bapi_extraSkills", FieldAttributes.Public, assembly.MainModule.ImportReference(typeof(List<object>))));
             genericSkill.Fields.Add(new FieldDefinition("bapi_linkedSkill", FieldAttributes.Public, assembly.MainModule.ImportReference(typeof(object))));
             genericSkill.Fields.Add(new FieldDefinition("bapi_section", FieldAttributes.Public, assembly.MainModule.ImportReference(typeof(string))));
+            genericSkill.Fields.Add(new FieldDefinition("bapi_sprint", FieldAttributes.Public, assembly.MainModule.ImportReference(typeof(bool))));
         }
     }
     private static void PatchRow(AssemblyDefinition assembly)
@@ -150,7 +226,15 @@ internal static class Ror2Patcher
     private static void PatchSkillLocator(AssemblyDefinition assembly)
     {
         TypeDefinition skillLocator = assembly.MainModule.GetType("RoR2", "SkillLocator");
-        skillLocator?.Fields.Add(new FieldDefinition("bapi_bonusSkills", FieldAttributes.Public, assembly.MainModule.ImportReference(typeof(List<object>))));
+        TypeDefinition genericSkill = assembly.MainModule.GetType("RoR2", "GenericSkill");
+        if (skillLocator != null)
+        {
+            if (genericSkill != null)
+            {
+                skillLocator.Fields.Add(new FieldDefinition("bapi_sprintSkill", FieldAttributes.Public, assembly.MainModule.ImportReference(genericSkill)));
+            }
+        }
+        //skillLocator?.Fields.Add(new FieldDefinition("bapi_bonusSkills", FieldAttributes.Public, assembly.MainModule.ImportReference(typeof(List<object>))));
     }
     private static void PatchCharacterMotor(AssemblyDefinition assembly)
     {
@@ -167,6 +251,7 @@ internal static class Ror2Patcher
             characterMotor.Fields.Add(new FieldDefinition("bapi_airControlFromVelocityAdd", FieldAttributes.Public, assembly.MainModule.ImportReference(typeof(float))));
             characterMotor.Fields.Add(new FieldDefinition("bapi_useMaxAirVelocity", FieldAttributes.Public, assembly.MainModule.ImportReference(typeof(bool))));
             characterMotor.Fields.Add(new FieldDefinition("bapi_maxAirVelocity", FieldAttributes.Public, assembly.MainModule.ImportReference(typeof(float))));
+            characterMotor.Fields.Add(new FieldDefinition("bapi_positionDelta", FieldAttributes.Public, assembly.MainModule.ImportReference(typeof(Vector3))));
         }
     }
     private static void PatchConfigEntry(ref AssemblyDefinition assembly)
