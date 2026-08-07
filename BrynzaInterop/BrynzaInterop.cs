@@ -146,6 +146,10 @@ public static class BrynzaInterop
     public static bool GetSprint(GenericSkill genericSkill) => genericSkill.bapi_sprint;
     public static void SetSprintSkill(SkillLocator skillLocator, GenericSkill value) => skillLocator.bapi_sprintSkill = value;
     public static GenericSkill GetSprintSkill(SkillLocator skillLocator) => skillLocator.bapi_sprintSkill;
+    public static void SetEndPosition(BlastAttack blastAttack, Vector3? vector3) => blastAttack.bapi_endPosition = vector3;
+    public static Vector3? GetEndPosition(BlastAttack blastAttack) => blastAttack.bapi_endPosition;
+    public static void SetNearestPositionOnLineFromHitPosition(ref BlastAttack.HitPoint hitPoint, Vector3? vector3) => hitPoint.bapi_nearestPositionOnLineFromHitPosition = vector3;
+    public static Vector3? GetNearestPositionOnLineFromHitPosition(BlastAttack.HitPoint hitPoint) => hitPoint.bapi_nearestPositionOnLineFromHitPosition;
     //public static List<HealthComponent> GetIgnoredHealthComponents(BulletAttack bulletAttack) => bulletAttack.bapi_ignoredHealthComponentList != null ? (Enumerable.Range(0, bulletAttack.bapi_ignoredHealthComponentList.Count)
     //                         .Select(i => (bulletAttack.bapi_ignoredHealthComponentList[i] is HealthComponent ? bulletAttack.bapi_ignoredHealthComponentList[i] as HealthComponent : null))
     //                         .ToList()) : null;

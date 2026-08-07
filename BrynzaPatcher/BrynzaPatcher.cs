@@ -25,7 +25,7 @@ internal static class Ror2Patcher
         //PatchEntityStateMachine(assembly);
         //PatchSkillDef(assembly);
         PatchBulletAttack(assembly);
-        //PatchBlastAttack(assembly);
+        PatchBlastAttack(assembly);
         PatchCharacterBody(assembly);
         PatchCharacterModel(assembly);
         PatchRow(assembly);
@@ -178,15 +178,21 @@ internal static class Ror2Patcher
     private static void PatchBlastAttack(AssemblyDefinition assembly)
     {
         TypeDefinition blastAttack = assembly.MainModule.GetType("RoR2", "BlastAttack");
-        TypeDefinition blastAttackDamageIngo = assembly.MainModule.GetType("RoR2.BlastAttack/BlastAttackDamageInfo");
+        //TypeDefinition blastAttackDamageIngo = assembly.MainModule.GetType("RoR2.BlastAttack/BlastAttackDamageInfo");
+        TypeDefinition blastAttackHitPoint = assembly.MainModule.GetType("RoR2.BlastAttack/HitPoint");
         if (blastAttack != null)
         {
-            blastAttack.Fields.Add(new FieldDefinition("bapi_forceMassIsOne", FieldAttributes.Public, assembly.MainModule.ImportReference(typeof(bool))));
+            blastAttack.Fields.Add(new FieldDefinition("bapi_endPosition", FieldAttributes.Public, assembly.MainModule.ImportReference(typeof(Vector3?))));
+            if (blastAttackHitPoint != null)
+            {
+                blastAttackHitPoint.Fields.Add(new FieldDefinition("bapi_nearestPositionOnLineFromHitPosition", FieldAttributes.Public, assembly.MainModule.ImportReference(typeof(Vector3?))));
+            }
+            /*blastAttack.Fields.Add(new FieldDefinition("bapi_forceMassIsOne", FieldAttributes.Public, assembly.MainModule.ImportReference(typeof(bool))));
             blastAttack.Fields.Add(new FieldDefinition("bapi_forceAlwaysApply", FieldAttributes.Public, assembly.MainModule.ImportReference(typeof(bool))));
             blastAttack.Fields.Add(new FieldDefinition("bapi_forceDisableAirControlUntilCollision", FieldAttributes.Public, assembly.MainModule.ImportReference(typeof(bool))));
             blastAttackDamageIngo.Fields.Add(new FieldDefinition("bapi_forceMassIsOne", FieldAttributes.Public, assembly.MainModule.ImportReference(typeof(bool))));
             blastAttackDamageIngo.Fields.Add(new FieldDefinition("bapi_forceAlwaysApply", FieldAttributes.Public, assembly.MainModule.ImportReference(typeof(bool))));
-            blastAttackDamageIngo.Fields.Add(new FieldDefinition("bapi_forceDisableAirControlUntilCollision", FieldAttributes.Public, assembly.MainModule.ImportReference(typeof(bool))));
+            blastAttackDamageIngo.Fields.Add(new FieldDefinition("bapi_forceDisableAirControlUntilCollision", FieldAttributes.Public, assembly.MainModule.ImportReference(typeof(bool))));*/
         }
     }
     private static void PatchDamageInfo(AssemblyDefinition assembly)

@@ -51,6 +51,8 @@ using UnityEngine.Networking;
 using UnityEngine.SceneManagement;
 using UnityEngine.Serialization;
 using UnityEngine.UI;
+using UnityEngine.UIElements;
+
 #if UNITY_EDITOR
 using UnityEditor;
 #endif
@@ -76,6 +78,7 @@ namespace BrynzaAPI
     [BepInDependency(R2API.R2API.PluginGUID, R2API.R2API.PluginVersion)]
     [BepInDependency(R2API.CharacterBodyAPI.PluginGUID)]
     [BepInDependency(R2API.DamageAPI.PluginGUID)]
+    [BepInDependency(R2API.PrefabAPI.PluginGUID)]
     [BepInDependency(NetworkingAPI.PluginGUID)]
     [BepInDependency(ModCompatibilities.ProjectilesConfiguratorCompatibility.GUID, BepInDependency.DependencyFlags.SoftDependency)]
     [NetworkCompatibility(CompatibilityLevel.EveryoneMustHaveMod, VersionStrictness.EveryoneNeedSameModVersion)]
@@ -84,7 +87,7 @@ namespace BrynzaAPI
     {
         public const string ModGuid = "com.brynzananas.brynzaapi";
         public const string ModName = "Brynza API";
-        public const string ModVer = "1.9.0";
+        public const string ModVer = "1.10.0";
         public static FixedConditionalWeakTable<CharacterMotor, List<OnHitGroundServerDelegate>> onHitGroundServerDictionary = new FixedConditionalWeakTable<CharacterMotor, List<OnHitGroundServerDelegate>>();
         public delegate void OnHitGroundServerDelegate(CharacterMotor characterMotor, ref CharacterMotor.HitGroundInfo hitGroundInfo);
         public static bool proejctilesConfiguratorEnabled { get; private set; }
@@ -104,6 +107,7 @@ namespace BrynzaAPI
         public static Dictionary<ConfigFile, Dictionary<ConfigDefinition, string>> defaultConfigValues = [];
         private static List<ExtraKeepVelocityOnMoving> GetExtraKeepVelocityOnMovingDelegates = [];
         public delegate bool ExtraKeepVelocityOnMoving(CharacterMotor characterMotor);
+        public static Material DebugMaterial;
         public static event ExtraKeepVelocityOnMoving GetExtraKeepVelocityOnMoving
         {
             add
@@ -338,7 +342,6 @@ namespace BrynzaAPI
             //On.RoR2.BlastAttack.BlastAttackDamageInfo.Write += BlastAttackDamageInfo_Write;
             //On.RoR2.BlastAttack.BlastAttackDamageInfo.Read += BlastAttackDamageInfo_Read;
             IL.RoR2.AimAnimator.UpdateAnimatorParameters += AimAnimator_UpdateAnimatorParameters;
-            IL.RoR2.PlayerCharacterMasterController.PollButtonInput += PlayerCharacterMasterController_PollButtonInput;
             On.RoR2.CharacterBody.TriggerJumpEventGlobally += CharacterBody_TriggerJumpEventGlobally;
             On.RoR2.CharacterBody.Awake += CharacterBody_Awake;
             On.RoR2.EffectData.Copy += EffectData_Copy;
@@ -362,13 +365,170 @@ namespace BrynzaAPI
             //IL.RoR2.PickupDropletController.CreatePickupDroplet_CreatePickupInfo_Vector3_Vector3 += PickupDropletController_CreatePickupDroplet_CreatePickupInfo_Vector3_Vector3;
             IL.RoR2.GenericPickupController.CreatePickup += GenericPickupController_CreatePickup;
             On.EntityStates.GenericCharacterMain.PerformInputs += GenericCharacterMain_PerformInputs;
+            IL.RoR2.BlastAttack.CollectHits += BlastAttack_CollectHits;
+            IL.RoR2.BlastAttack.HandleHits += BlastAttack_HandleHits1;
             CharacterBodyAPI.AddAlwaysSprintCondition(AlwaysSprint);
             RoR2Application.onLoadFinished += OnRoR2Loaded;
             harmonyPatcher = new Harmony(ModGuid);
             harmonyPatcher.CreateClassProcessor(typeof(Patches)).Patch();
         }
+        private static bool debugExplosion = false;
+        private static BlastAttack.Result BlastAttack_Fire(On.RoR2.BlastAttack.orig_Fire orig, BlastAttack self)
+        {
+            BlastAttack.Result result = orig(self);
+            if (debugExplosion)
+            {
+                Vector3? endPos = self.GetEndPosition();
+                if (endPos.HasValue)
+                {
+                    Utils.CreateDebugCapsule(self.position, endPos.Value, self.radius, new Color(0f, 0f, 0f, 0.3f), 3f);
+                }
+                else
+                {
+                    Utils.CreateDebugSphere(self.position, self.radius, new Color(0f, 0f, 0f, 0.3f), 3f);
+                }
+            }
+            return result;
+        }
 
-        private bool AlwaysSprint(CharacterBody characterBody) => characterBody.HasModdedBodyFlag(Assets.SprintAllTime);
+        private void BlastAttack_HandleHits1(ILContext il)
+        {
+            ILCursor c = new ILCursor(il);
+            if (
+                !c.TryGotoNext(MoveType.After,
+                    x => x.MatchStloc(2)
+                ))
+            {
+                Log.LogError(il.Method.Name + " IL Hook 1 failed!");
+                return;
+            }
+            c.Emit(OpCodes.Ldloc, 0);
+            c.Emit(OpCodes.Ldloc, 2);
+            c.Emit(OpCodes.Ldarg, 0);
+            c.EmitDelegate(IAmTooAssedToMakeSmartIlEditsGoMySingleDelegateThatWilDoEverything);
+            c.Emit(OpCodes.Stloc_0);
+        }
+        private static void Deeebuuug(Vector3 direction, Vector3 origin, float dist)
+        {
+            Utils.CreateDebugSphere(origin, 1f, new Color(1f, 1f, 1f, 0.3f), 3f);
+            Utils.CreateDebugLine(origin, origin + (direction * dist), new Color(1f, 1f, 1f, 0.3f), 3f, 1f);
+        }
+        private static Vector3 IAmTooAssedToMakeSmartIlEditsGoMySingleDelegateThatWilDoEverything(Vector3 vector3, BlastAttack.HitPoint hitPoint, BlastAttack blastAttack)
+        {
+            Vector3? nearestPositionOnLineFromHitPosition = hitPoint.GetNearestPositionOnLineFromHitPosition();
+            Vector3 returnPosition = blastAttack.position;
+            if (!nearestPositionOnLineFromHitPosition.HasValue)
+            {
+                Vector3? endPos = blastAttack.GetEndPosition();
+                if (!endPos.HasValue) return returnPosition;
+                Vector3 direction = endPos.Value - blastAttack.position;
+                returnPosition = Utils.NearestPointOnLine(blastAttack.position, direction, hitPoint.hitPosition);
+            }
+            else
+            {
+                returnPosition = nearestPositionOnLineFromHitPosition.Value;
+            }
+            return returnPosition;
+        }
+        private static bool NullableVector3HasValue(Vector3? vector3) => vector3.HasValue;
+        private static Vector3 NullableVector3Value(Vector3? vector3) => vector3.Value;
+        public struct BlastAttack_CollectHitsValues
+        {
+            public Vector3 point1;
+            public Vector3 point2;
+            public float radius;
+            public int layer;
+        }
+        private static BlastAttack_CollectHitsValues WhatAmIDoing(Vector3 point1, float radius, int layer, BlastAttack blastAttack)
+        {
+            return new BlastAttack_CollectHitsValues
+            {
+                point1 = point1,
+                point2 = blastAttack.GetEndPosition().Value,
+                radius = radius,
+                layer = layer,
+            };
+        }
+        private static void BlastAttack_CollectHits(ILContext il)
+        {
+            ILCursor c = new ILCursor(il);
+            if (
+                !c.TryGotoNext(MoveType.Before,
+                    x => x.MatchCall<Physics>(nameof(Physics.OverlapSphere))
+                ))
+            {
+                Log.LogError(il.Method.Name + " IL Hook 1 failed!");
+                return;
+            }
+            int valuesId = c.Context.Body.Variables.Count;
+            c.Body.Variables.Add(new Mono.Cecil.Cil.VariableDefinition(il.Import(typeof(BlastAttack_CollectHitsValues))));
+            Instruction instruction2 = c.Next;
+            Instruction instruction3 = c.Next.Next;
+            c.Emit(OpCodes.Ldarg_0);
+            c.EmitDelegate(Extensions.GetEndPosition);
+            c.EmitDelegate(NullableVector3HasValue);
+            c.Emit(OpCodes.Brfalse_S, instruction2);
+            c.Emit(OpCodes.Ldarg_0);
+            c.EmitDelegate(WhatAmIDoing);
+            c.Emit(OpCodes.Stloc, valuesId);
+            c.Emit(OpCodes.Ldloc, valuesId);
+            c.Emit(OpCodes.Ldfld, AccessTools.Field(typeof(BlastAttack_CollectHitsValues), nameof(BlastAttack_CollectHitsValues.point1)));
+            c.Emit(OpCodes.Ldloc, valuesId);
+            c.Emit(OpCodes.Ldfld, AccessTools.Field(typeof(BlastAttack_CollectHitsValues), nameof(BlastAttack_CollectHitsValues.point2)));
+            c.Emit(OpCodes.Ldloc, valuesId);
+            c.Emit(OpCodes.Ldfld, AccessTools.Field(typeof(BlastAttack_CollectHitsValues), nameof(BlastAttack_CollectHitsValues.radius)));
+            c.Emit(OpCodes.Ldloc, valuesId);
+            c.Emit(OpCodes.Ldfld, AccessTools.Field(typeof(BlastAttack_CollectHitsValues), nameof(BlastAttack_CollectHitsValues.layer)));
+            c.Emit(OpCodes.Call, AccessTools.Method(typeof(Physics), nameof(Physics.OverlapCapsule), new Type[] { typeof(Vector3), typeof(Vector3), typeof(float), typeof(int) }));
+            c.Emit(OpCodes.Br_S, instruction3);
+            int hitPointLocalIndex = 17;
+            c = new ILCursor(il);
+            if (
+                !c.TryGotoNext(MoveType.Before,
+                    x => x.MatchLdloc(out hitPointLocalIndex),
+                    x => x.MatchStelemAny<BlastAttack.HitPoint>())
+                )
+            {
+                Log.LogError(il.Method.Name + " IL Hook 2 failed!");
+                return;
+            }
+            c.Emit(OpCodes.Ldloca, hitPointLocalIndex);
+            c.Emit(OpCodes.Ldarg_0);
+            c.EmitDelegate(HandleHitPoint1);
+            int id = 19;
+            c = new ILCursor(il);
+            if (
+                !c.TryGotoNext(MoveType.After,
+                    x => x.MatchLdloc(out id),
+                    x => x.MatchLdfld<BlastAttack.HitPoint>(nameof(BlastAttack.HitPoint.hitNormal)),
+                    x => x.MatchCall<Vector3>("op_UnaryNegation"),
+                    x => x.MatchNewobj<Ray>()
+                ))
+            {
+                Log.LogError(il.Method.Name + " IL Hook 3 failed!");
+                return;
+            }
+            c.Emit(OpCodes.Ldloca, id);
+            c.EmitDelegate(HandleRay1);
+        }
+        private static void HandleHitPoint1(ref BlastAttack.HitPoint hitPoint, BlastAttack blastAttack)
+        {
+            Vector3? endPos = blastAttack.GetEndPosition();
+            if (!endPos.HasValue) return;
+            Vector3 direction = endPos.Value - blastAttack.position;
+            Vector3 nearestPoint = Utils.NearestPointOnLine(blastAttack.position, direction, hitPoint.hitPosition);
+            hitPoint.SetNearestPositionOnLineFromHitPosition(nearestPoint);
+            hitPoint.hitNormal = hitPoint.hitPosition - nearestPoint;
+            hitPoint.distanceSqr = hitPoint.hitNormal.sqrMagnitude;
+        }
+        private static Ray HandleRay1(Ray ray, ref BlastAttack.HitPoint hitPoint)
+        {
+            Vector3? nearestPositionOnLineFromHitPosition = hitPoint.GetNearestPositionOnLineFromHitPosition();
+            if (!nearestPositionOnLineFromHitPosition.HasValue) return ray;
+            ray.origin = nearestPositionOnLineFromHitPosition.Value;
+            return ray;
+        }
+        private static bool AlwaysSprint(CharacterBody characterBody) => characterBody.HasModdedBodyFlag(Assets.SprintAllTime);
 
         private void GenericPickupController_CreatePickup(ILContext il)
         {
@@ -598,7 +758,7 @@ namespace BrynzaAPI
                     Instruction instruction2 = c.Next.Next.Next.Next.Next;
                     c.Emit(OpCodes.Ldarg_0);
                     c.EmitDelegate(HasScale);
-                    bool HasScale(EffectComponent effectComponent) => effectComponent.effectData == null ? false : effectComponent.effectData.GetScale().HasValue;
+                    bool HasScale(EffectComponent effectComponent) => effectComponent.effectData.GetScale().HasValue;
                     c.Emit(OpCodes.Brfalse_S, instruction);
                     c.Emit(OpCodes.Ldarg_0);
                     c.EmitDelegate(GetScale);
@@ -617,7 +777,14 @@ namespace BrynzaAPI
         {
             orig(self, reader);
             bool flag = reader.ReadBoolean();
-            if (flag) self.SetScale(reader.ReadVector3());
+            if (flag)
+            {
+                self.SetScale(reader.ReadVector3());
+            }
+            else
+            {
+                self.SetScale(null);
+            }
         }
 
         private void EffectData_Serialize(On.RoR2.EffectData.orig_Serialize orig, EffectData self, NetworkWriter writer)
@@ -682,7 +849,6 @@ namespace BrynzaAPI
             //On.RoR2.BlastAttack.BlastAttackDamageInfo.Write -= BlastAttackDamageInfo_Write;
             //On.RoR2.BlastAttack.BlastAttackDamageInfo.Read -= BlastAttackDamageInfo_Read;
             IL.RoR2.AimAnimator.UpdateAnimatorParameters -= AimAnimator_UpdateAnimatorParameters;
-            IL.RoR2.PlayerCharacterMasterController.PollButtonInput -= PlayerCharacterMasterController_PollButtonInput;
             On.RoR2.CharacterBody.TriggerJumpEventGlobally -= CharacterBody_TriggerJumpEventGlobally;
             On.RoR2.CharacterBody.Awake -= CharacterBody_Awake;
             On.RoR2.EffectData.Copy -= EffectData_Copy;
@@ -713,37 +879,6 @@ namespace BrynzaAPI
             orig(self);
             self.SetLastJumpTime(Run.FixedTimeStamp.now);
         }
-
-        private void PlayerCharacterMasterController_PollButtonInput(ILContext il)
-        {
-            ILCursor c = new ILCursor(il);
-            if (
-                c.TryGotoNext(MoveType.Before,
-                    x => x.MatchLdloc(16),
-                    x => x.MatchStloc(6)
-                ))
-            {
-                c.Index++;
-                Instruction instruction = c.Next;
-                Instruction instruction2 = c.Next.Next;
-                c.Emit(OpCodes.Ldarg_0);
-                c.EmitDelegate(GetFlag);
-                bool GetFlag(PlayerCharacterMasterController playerCharacterMasterController) => playerCharacterMasterController.body.HasModdedBodyFlag(Assets.SprintAllTime);
-                c.Emit(OpCodes.Brfalse_S, instruction);
-                c.Emit(OpCodes.Pop);
-                c.Emit(OpCodes.Ldloc, 13);
-                c.Emit(OpCodes.Ldc_I4, 18);
-                //bool GetButtonInput(Player player, int i) => player.GetButton(i);
-                c.Emit(OpCodes.Callvirt, AccessTools.Method(typeof(Player), nameof(Player.GetButton), [typeof(int)]));
-                //c.Emit(OpCodes.Stloc, 6);
-                //c.Emit(OpCodes.Br, instruction2);
-            }
-            else
-            {
-                Log.LogError(il.Method.Name + " IL Hook 1 failed!");
-            }
-        }
-
         private void AimAnimator_UpdateAnimatorParameters(ILContext il)
         {
             ILCursor c = new ILCursor(il);
@@ -2131,9 +2266,65 @@ private void BulletAttack_Fire(ILContext il)
    }
 }
 */
+        private static void HandleProjectileExplosion_DetonateServer(BlastAttack blastAttack, ProjectileExplosion projectileExplosion)
+        {
+            if (!(projectileExplosion is ProjectileImpactCapsuleExplosion projectileImpactCapsuleExplosion)) return;
+            Vector3 endPositionAdd = projectileImpactCapsuleExplosion.endPositionAdd;
+            if (projectileImpactCapsuleExplosion.endPositionAddSpace == ProjectileImpactCapsuleExplosion.Space.Local) endPositionAdd = projectileExplosion.transform.rotation * endPositionAdd;
+            blastAttack.SetEndPosition(blastAttack.position + endPositionAdd);
+            Vector3 positionAdd = projectileImpactCapsuleExplosion.positionAdd;
+            if (projectileImpactCapsuleExplosion.positionAddSpace == ProjectileImpactCapsuleExplosion.Space.Local) positionAdd = projectileExplosion.transform.rotation * positionAdd;
+            blastAttack.position += positionAdd;
+        }
+        private static void HandleProjectileExplosion_DetonateServer1(EffectData effectData, ProjectileExplosion projectileExplosion)
+        {
+            if (!(projectileExplosion is ProjectileImpactCapsuleExplosion projectileImpactCapsuleExplosion)) return;
+            Vector3 endPositionAdd = projectileImpactCapsuleExplosion.endPositionAdd;
+            if (projectileImpactCapsuleExplosion.endPositionAddSpace == ProjectileImpactCapsuleExplosion.Space.Local) endPositionAdd = projectileExplosion.transform.rotation * endPositionAdd;
+            Vector3 endPosition = projectileExplosion.transform.position + endPositionAdd;
+            Vector3 positionAdd = projectileImpactCapsuleExplosion.positionAdd;
+            if (projectileImpactCapsuleExplosion.positionAddSpace == ProjectileImpactCapsuleExplosion.Space.Local) positionAdd = projectileExplosion.transform.rotation * positionAdd;
+            Vector3 position = projectileExplosion.transform.position + positionAdd;
+            Vector3 newPosition = (position + endPosition) / 2f;
+            effectData.origin = newPosition;
+            Vector3 vector3 = endPosition - position;
+            effectData.SetScale(new Vector3(projectileImpactCapsuleExplosion.scaleEffectByAxis == ProjectileImpactCapsuleExplosion.ScaleEffectByAxis.X ? vector3.magnitude : effectData.scale, projectileImpactCapsuleExplosion.scaleEffectByAxis == ProjectileImpactCapsuleExplosion.ScaleEffectByAxis.Y ? vector3.magnitude : effectData.scale, projectileImpactCapsuleExplosion.scaleEffectByAxis == ProjectileImpactCapsuleExplosion.ScaleEffectByAxis.Z ? vector3.magnitude : effectData.scale));
+            effectData.rotation = Quaternion.LookRotation(vector3) * Quaternion.Euler(projectileImpactCapsuleExplosion.addRotationToEffect);
+        }
         private static void ProjectileExplosion_DetonateServer(ILContext il)
         {
             ILCursor c = new ILCursor(il);
+            int num = 0;
+            if (
+                c.TryGotoNext(MoveType.Before,
+                    x => x.MatchLdloc(out num),
+                    x => x.MatchLdcI4(out _),
+                    x => x.MatchCall(typeof(EffectManager), nameof(EffectManager.SpawnEffect))
+                ))
+            {
+                c.Emit(OpCodes.Ldloc, num);
+                c.Emit(OpCodes.Ldarg_0);
+                c.EmitDelegate(HandleProjectileExplosion_DetonateServer1);
+            }
+            else
+            {
+                Log.LogError(il.Method.Name + " IL Hook 1 failed!");
+            }
+            c = new ILCursor(il);
+            if (
+                c.TryGotoNext(MoveType.Before,
+                    x => x.MatchCallOrCallvirt<BlastAttack>(nameof(BlastAttack.Fire))
+                ))
+            {
+                c.Emit(OpCodes.Dup);
+                c.Emit(OpCodes.Ldarg_0);
+                c.EmitDelegate(HandleProjectileExplosion_DetonateServer);
+            }
+            else
+            {
+                Log.LogError(il.Method.Name + " IL Hook 2 failed!");
+            }
+            c = new ILCursor(il);
             ILLabel iLLabel = null;
             if (c.TryGotoNext(
                     x => x.MatchCallvirt<ProjectileExplosion>(nameof(ProjectileExplosion.OnBlastAttackResult))
@@ -2154,7 +2345,7 @@ private void BulletAttack_Fire(ILContext il)
             }
             else
             {
-                Log.LogError(il.Method.Name + " IL Hook failed!");
+                Log.LogError(il.Method.Name + " IL Hook 3 failed!");
             }
         }
         public static float strafeMultiplier = 15f;
@@ -3572,6 +3763,28 @@ private void BulletAttack_Fire(ILContext il)
             return mirroredCharacterSpawnCard;
         }
     }
+    public class ProjectileImpactCapsuleExplosion : ProjectileImpactExplosion
+    {
+        public Vector3 positionAdd;
+        public Space positionAddSpace;
+        public Vector3 endPositionAdd;
+        public Space endPositionAddSpace;
+        public ScaleEffectByAxis scaleEffectByAxis = ScaleEffectByAxis.Y;
+        public Vector3 addRotationToEffect = new Vector3(90f, 0f, 0f);
+        public enum Space
+        {
+            World,
+            Local
+        }
+        public float GetDistanceBetweenPositionsSquared() => (positionAdd - endPositionAdd).sqrMagnitude;
+        public float GetDistanceBetweenPositions() => (positionAdd - endPositionAdd).magnitude;
+        public enum ScaleEffectByAxis
+        {
+            Z,
+            Y,
+            X
+        }
+    }
     public class BrynzaMusicTrackController : MonoBehaviour
     {
         public static BrynzaMusicTrackController _instance;
@@ -4006,6 +4219,60 @@ private void BulletAttack_Fire(ILContext il)
     }
     public static class Utils
     {
+        public static void CreateDebugCapsule(Vector3 start, Vector3 end, float radius, Color color, float duration)
+        {
+            Vector3 direction = end - start;
+            float distance = direction.magnitude;
+            GameObject capsuleParent = new GameObject("DebugCapsule");
+            CreateDebugSphere(start, radius, color, duration);
+            CreateDebugSphere(end, radius, color, duration);
+            if (distance > 0.001f)
+            {
+                GameObject cylinder = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
+                cylinder.name = "CylinderSegment";
+                cylinder.transform.SetParent(capsuleParent.transform);
+                GameObject.Destroy(cylinder.GetComponent<Collider>());
+                cylinder.transform.position = (start + end) * 0.5f;
+                cylinder.transform.rotation = Quaternion.FromToRotation(Vector3.up, direction.normalized);
+                cylinder.transform.localScale = new Vector3(radius * 2f, distance * 0.5f, radius * 2f);
+                cylinder.GetComponent<Renderer>().material.color = color;
+            }
+            GameObject.Destroy(capsuleParent, duration);
+        }
+        public static void CreateDebugSphere(Vector3 center, float radius, Color color, float duration)
+        {
+            GameObject sphereObj = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+            sphereObj.name = "DebugSphere";
+            sphereObj.transform.position = center;
+            sphereObj.transform.localScale = Vector3.one * (radius * 2f);
+            GameObject.Destroy(sphereObj.GetComponent<Collider>());
+            Renderer renderer = sphereObj.GetComponent<Renderer>();
+            GameObject.Destroy(sphereObj, duration);
+            //Material material = new Material(Shader.Find("Sprites/Default"));
+            Material material = renderer.material;
+            material.color = color;
+        }
+        public static void CreateDebugLine(Vector3 start, Vector3 end, Color color, float duration, float thickness = 0.5f)
+        {
+            GameObject lineObj = new GameObject("DebugLine");
+            LineRenderer lineRenderer = lineObj.AddComponent<LineRenderer>();
+            //lineRenderer.material = new Material(Shader.Find("Sprites/Default"));
+            lineRenderer.startColor = color;
+            lineRenderer.endColor = color;
+            lineRenderer.startWidth = thickness;
+            lineRenderer.endWidth = thickness;
+            lineRenderer.positionCount = 2;
+            lineRenderer.SetPosition(0, start);
+            lineRenderer.SetPosition(1, end);
+            GameObject.Destroy(lineObj, duration);
+        }
+        public static Vector3 NearestPointOnLine(Vector3 linePnt, Vector3 lineDir, Vector3 pnt)
+        {
+            lineDir.Normalize();
+            var v = pnt - linePnt;
+            var d = Vector3.Dot(v, lineDir);
+            return linePnt + lineDir * d;
+        }
         public static void AddLanguageToken(string token, string output, string language = "en")
         {
             if (RoR2Application.loadFinished)
@@ -4378,6 +4645,10 @@ private void BulletAttack_Fire(ILContext il)
         public static bool GetSprint(this GenericSkill genericSkill) => BrynzaInterop.GetSprint(genericSkill);
         public static void SetSprintSkill(this SkillLocator skillLocator, GenericSkill value) => BrynzaInterop.SetSprintSkill(skillLocator, value);
         public static GenericSkill GetSprintSkill(this SkillLocator skillLocator) => BrynzaInterop.GetSprintSkill(skillLocator);
+        public static void SetEndPosition(this BlastAttack blastAttack, Vector3? endPosition) => BrynzaInterop.SetEndPosition(blastAttack, endPosition);
+        public static Vector3? GetEndPosition(this BlastAttack blastAttack) => BrynzaInterop.GetEndPosition(blastAttack);
+        public static void SetNearestPositionOnLineFromHitPosition(this ref BlastAttack.HitPoint hitPoint, Vector3? vector3) => BrynzaInterop.SetNearestPositionOnLineFromHitPosition(ref hitPoint, vector3);
+        public static Vector3? GetNearestPositionOnLineFromHitPosition(this BlastAttack.HitPoint hitPoint) => BrynzaInterop.GetNearestPositionOnLineFromHitPosition(hitPoint);
         public static void ResetIgnoredHealthComponents(this BulletAttack bulletAttack)
         {
             if (bulletAttack.GetIgnoredHealthComponents() != null) bulletAttack.GetIgnoredHealthComponents().Clear();

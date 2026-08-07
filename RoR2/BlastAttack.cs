@@ -12,6 +12,11 @@ namespace RoR2
         public bool bapi_forceMassIsOne;
         public bool bapi_forceAlwaysApply;
         public bool bapi_forceDisableAirControlUntilCollision;
+        public Vector3? bapi_endPosition;
+        public struct HitPoint
+        {
+            public Vector3? bapi_nearestPositionOnLineFromHitPosition;
+        }
         public struct Result
         {
         }
