@@ -117,7 +117,12 @@ internal static class Ror2Patcher
             characterBody.Fields.Add(new FieldDefinition("bapi_baseWallJumpCount", FieldAttributes.Public, assembly.MainModule.ImportReference(typeof(int))));
             characterBody.Fields.Add(new FieldDefinition("bapi_maxWallJumpCount", FieldAttributes.Public, assembly.MainModule.ImportReference(typeof(int))));
             characterBody.Fields.Add(new FieldDefinition("bapi_clientBuffs", FieldAttributes.Public, assembly.MainModule.ImportReference(typeof(int[]))));
-            characterBody.Fields.Add(new FieldDefinition("bapi_lastJumpTime", FieldAttributes.Public, assembly.MainModule.ImportReference(fixedTimeStamp)));
+            if (fixedTimeStamp != null) characterBody.Fields.Add(new FieldDefinition("bapi_lastJumpTime", FieldAttributes.Public, assembly.MainModule.ImportReference(fixedTimeStamp)));
+            characterBody.Fields.Add(new FieldDefinition("bapi_positionDelta", FieldAttributes.Public, assembly.MainModule.ImportReference(typeof(Vector3))));
+            characterBody.Fields.Add(new FieldDefinition("bapi_previousPosition", FieldAttributes.Public, assembly.MainModule.ImportReference(typeof(Vector3))));
+            characterBody.Fields.Add(new FieldDefinition("bapi_bulletCount", FieldAttributes.Public, assembly.MainModule.ImportReference(typeof(int))));
+            characterBody.Fields.Add(new FieldDefinition("bapi_bulletCountGraceDuration", FieldAttributes.Public, assembly.MainModule.ImportReference(typeof(float))));
+            characterBody.Fields.Add(new FieldDefinition("bapi_bulletCountResetTimer", FieldAttributes.Public, assembly.MainModule.ImportReference(typeof(float))));
         }
         PatchInteractor(assembly, characterBody);
     }
@@ -173,6 +178,7 @@ internal static class Ror2Patcher
             //bulletAttack.Fields.Add(new FieldDefinition("bapi_forceDisableAirControlUntilCollision", FieldAttributes.Public, assembly.MainModule.ImportReference(typeof(bool))));
             bulletAttack.Fields.Add(new FieldDefinition("bapi_bonusForce", FieldAttributes.Public, assembly.MainModule.ImportReference(typeof(Vector3))));
             bulletAttack.Fields.Add(new FieldDefinition("bapi_noWeaponIfOwner", FieldAttributes.Public, assembly.MainModule.ImportReference(typeof(bool))));
+            bulletAttack.Fields.Add(new FieldDefinition("bapi_bulletPatternDef", FieldAttributes.Public, assembly.MainModule.ImportReference(typeof(object))));
         }
     }
     private static void PatchBlastAttack(AssemblyDefinition assembly)

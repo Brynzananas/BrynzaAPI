@@ -150,6 +150,18 @@ public static class BrynzaInterop
     public static Vector3? GetEndPosition(BlastAttack blastAttack) => blastAttack.bapi_endPosition;
     public static void SetNearestPositionOnLineFromHitPosition(ref BlastAttack.HitPoint hitPoint, Vector3? vector3) => hitPoint.bapi_nearestPositionOnLineFromHitPosition = vector3;
     public static Vector3? GetNearestPositionOnLineFromHitPosition(BlastAttack.HitPoint hitPoint) => hitPoint.bapi_nearestPositionOnLineFromHitPosition;
+    public static void SetPreviousPosition(CharacterBody characterBody, Vector3 vector3) => characterBody.bapi_previousPosition = vector3;
+    public static Vector3 GetPreviousPosition(CharacterBody characterBody) => characterBody.bapi_previousPosition;
+    public static void SetPositionDelta(CharacterBody characterBody, Vector3 vector3) => characterBody.bapi_positionDelta = vector3;
+    public static Vector3 GetPositionDelta(CharacterBody characterBody) => characterBody.bapi_positionDelta;
+    public static void SetBulletCount(CharacterBody characterBody, int bulletCount) => characterBody.bapi_bulletCount = bulletCount;
+    public static int GetBulletCount(CharacterBody characterBody) => characterBody.bapi_bulletCount;
+    public static void SetBulletCountGraceDuration(CharacterBody characterBody, float bulletCountGraceDuration) => characterBody.bapi_bulletCountGraceDuration = bulletCountGraceDuration;
+    public static float GetBulletCountGraceDuration(CharacterBody characterBody) => characterBody.bapi_bulletCountGraceDuration;
+    public static void SetBulletCountResetTimer(CharacterBody characterBody, float bulletCountResetTimer) => characterBody.bapi_bulletCountResetTimer = bulletCountResetTimer;
+    public static float GetBulletCountResetTimer(CharacterBody characterBody) => characterBody.bapi_bulletCountResetTimer;
+    public static void SetBulletPatternDef(BulletAttack bulletAttack, object obj) => bulletAttack.bapi_bulletPatternDef = obj;
+    public static object GetBulletPatternDef(BulletAttack bulletAttack) => bulletAttack.bapi_bulletPatternDef;
     //public static List<HealthComponent> GetIgnoredHealthComponents(BulletAttack bulletAttack) => bulletAttack.bapi_ignoredHealthComponentList != null ? (Enumerable.Range(0, bulletAttack.bapi_ignoredHealthComponentList.Count)
     //                         .Select(i => (bulletAttack.bapi_ignoredHealthComponentList[i] is HealthComponent ? bulletAttack.bapi_ignoredHealthComponentList[i] as HealthComponent : null))
     //                         .ToList()) : null;

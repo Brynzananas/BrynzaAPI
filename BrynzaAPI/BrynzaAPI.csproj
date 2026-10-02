@@ -26,6 +26,10 @@
 			<Private>false</Private>
 			<HintPath>D:\r2modman\RiskOfRain2\profiles\my_mod\BepInEx\plugins\ProjectilesConfigurator\Debug\netstandard2.1\ProjectilesConfigurator.dll</HintPath>
 		</Reference>
+		<Reference Include="UnityEngine-Editor">
+			<Private>false</Private>
+			<HintPath>D:\Unity 2021.3.33f1\Editor\Data\Managed\UnityEditor.dll</HintPath>
+		</Reference>
 	</ItemGroup>
 	
 	<Target Name="PostBuild" AfterTargets="PostBuildEvent">

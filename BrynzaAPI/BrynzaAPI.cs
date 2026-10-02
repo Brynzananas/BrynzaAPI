@@ -87,7 +87,7 @@ namespace BrynzaAPI
     {
         public const string ModGuid = "com.brynzananas.brynzaapi";
         public const string ModName = "Brynza API";
-        public const string ModVer = "1.10.0";
+        public const string ModVer = "1.11.0";
         public static FixedConditionalWeakTable<CharacterMotor, List<OnHitGroundServerDelegate>> onHitGroundServerDictionary = new FixedConditionalWeakTable<CharacterMotor, List<OnHitGroundServerDelegate>>();
         public delegate void OnHitGroundServerDelegate(CharacterMotor characterMotor, ref CharacterMotor.HitGroundInfo hitGroundInfo);
         public static bool proejctilesConfiguratorEnabled { get; private set; }
@@ -231,7 +231,7 @@ namespace BrynzaAPI
         public static event DynamicFloatStat GetDynamicAttackSpeed;
         public delegate void PickupCreated(GenericPickupController.CreatePickupInfo createPickupInfo, GameObject pickup);
         public static event PickupCreated OnPickupCreated;
-        private Harmony harmonyPatcher;
+        private static Harmony harmonyPatcher;
         public static BaseUnityPlugin instance { get; private set; }
         public static ManualLogSource Log { get; private set; }
         public void Awake()
@@ -285,7 +285,7 @@ namespace BrynzaAPI
             UnsetHooks();
         }
         #region Hooks
-        private void SetHooks()
+        private static void SetHooks()
         {
             if (hooksEnabled) return;
             hooksEnabled = true;
@@ -355,7 +355,6 @@ namespace BrynzaAPI
             On.RoR2.CharacterMotor.FixedUpdate += CharacterMotor_FixedUpdate;
             Hook hook5 = new Hook(AccessTools.Method(typeof(Interactor), "Awake"), typeof(BrynzaAPI).GetMethod(nameof(Interactor_Awake), BindingFlags.NonPublic | BindingFlags.Static));
             IL.RoR2.CharacterMotor.FixedUpdate += CharacterMotor_FixedUpdate1;
-            Hook hook6 = new Hook(typeof(ClassicStageInfo).GetMethod(nameof(ClassicStageInfo.RebuildCards), BindingFlags.NonPublic | BindingFlags.Instance), typeof(BrynzaAPI).GetMethod(nameof(ClassicStageInfo_RebuildCards), BindingFlags.NonPublic | BindingFlags.Static), new HookConfig { Priority = int.MaxValue });
             //On.RoR2.ClassicStageInfo.RebuildCards += ClassicStageInfo_RebuildCards;
             Hook hook7 = new Hook(AccessTools.Method(typeof(Inventory), "Awake"), typeof(BrynzaAPI).GetMethod(nameof(Inventory_Awake), BindingFlags.NonPublic | BindingFlags.Static));
             Hook hook8 = new Hook(typeof(CharacterBody).GetPropertyGetter(nameof(CharacterBody.regen)), typeof(BrynzaAPI).GetMethod(nameof(DynamicRegenHook), BindingFlags.NonPublic | BindingFlags.Static));
@@ -367,10 +366,35 @@ namespace BrynzaAPI
             On.EntityStates.GenericCharacterMain.PerformInputs += GenericCharacterMain_PerformInputs;
             IL.RoR2.BlastAttack.CollectHits += BlastAttack_CollectHits;
             IL.RoR2.BlastAttack.HandleHits += BlastAttack_HandleHits1;
+            On.RoR2.CharacterBody.FixedUpdate += CharacterBody_FixedUpdate;
+            On.RoR2.CharacterBody.ctor += CharacterBody_ctor;
+            IL.RoR2.BulletAttack.Fire_FireArgs += BulletAttack_Fire;
             CharacterBodyAPI.AddAlwaysSprintCondition(AlwaysSprint);
-            RoR2Application.onLoadFinished += OnRoR2Loaded;
             harmonyPatcher = new Harmony(ModGuid);
             harmonyPatcher.CreateClassProcessor(typeof(Patches)).Patch();
+        }
+
+        private static void CharacterBody_ctor(On.RoR2.CharacterBody.orig_ctor orig, CharacterBody self)
+        {
+            orig(self);
+            self.SetBulletCountGraceDuration(1f);
+        }
+        private static void CharacterBody_FixedUpdate(On.RoR2.CharacterBody.orig_FixedUpdate orig, CharacterBody self)
+        {
+            orig(self);
+            self.SetPositionDelta((self.transform.position - self.GetPreviousPosition()) / Time.fixedDeltaTime);
+            self.SetPreviousPosition(self.transform.position);
+            float bulletCountResetTimer = self.GetBulletCountResetTimer();
+            if (bulletCountResetTimer > 0f)
+            {
+                bulletCountResetTimer -= Time.fixedDeltaTime;
+                if (bulletCountResetTimer <= 0f)
+                {
+                    self.SetBulletCount(0);
+                    bulletCountResetTimer = 0f;
+                }
+                self.SetBulletCountResetTimer(bulletCountResetTimer);
+            }
         }
         private static bool debugExplosion = false;
         private static BlastAttack.Result BlastAttack_Fire(On.RoR2.BlastAttack.orig_Fire orig, BlastAttack self)
@@ -391,7 +415,7 @@ namespace BrynzaAPI
             return result;
         }
 
-        private void BlastAttack_HandleHits1(ILContext il)
+        private static void BlastAttack_HandleHits1(ILContext il)
         {
             ILCursor c = new ILCursor(il);
             if (
@@ -407,11 +431,26 @@ namespace BrynzaAPI
             c.Emit(OpCodes.Ldarg, 0);
             c.EmitDelegate(IAmTooAssedToMakeSmartIlEditsGoMySingleDelegateThatWilDoEverything);
             c.Emit(OpCodes.Stloc_0);
+            /*c = new ILCursor(il);
+            if (
+                !c.TryGotoNext(MoveType.After,
+                    x => x.MatchStloc(7)
+                ))
+            {
+                Log.LogError(il.Method.Name + " IL Hook 1 failed!");
+                return;
+            }
+            c.Emit(OpCodes.Ldloc, 7);
+            c.EmitDelegate(Deebuug2);*/
         }
-        private static void Deeebuuug(Vector3 direction, Vector3 origin, float dist)
+        private static void Deebuug2(BlastAttack.BlastAttackDamageInfo blastAttackDamageInfo)
+        {
+            Deeebuuug(blastAttackDamageInfo.force, blastAttackDamageInfo.position);
+        }
+        private static void Deeebuuug(Vector3 direction, Vector3 origin)
         {
             Utils.CreateDebugSphere(origin, 1f, new Color(1f, 1f, 1f, 0.3f), 3f);
-            Utils.CreateDebugLine(origin, origin + (direction * dist), new Color(1f, 1f, 1f, 0.3f), 3f, 1f);
+            Utils.CreateDebugLine(origin, origin + direction, new Color(1f, 1f, 1f, 0.3f), 3f, 1f);
         }
         private static Vector3 IAmTooAssedToMakeSmartIlEditsGoMySingleDelegateThatWilDoEverything(Vector3 vector3, BlastAttack.HitPoint hitPoint, BlastAttack blastAttack)
         {
@@ -530,7 +569,7 @@ namespace BrynzaAPI
         }
         private static bool AlwaysSprint(CharacterBody characterBody) => characterBody.HasModdedBodyFlag(Assets.SprintAllTime);
 
-        private void GenericPickupController_CreatePickup(ILContext il)
+        private static void GenericPickupController_CreatePickup(ILContext il)
         {
             ILCursor c = new ILCursor(il);
             int index = 0;
@@ -548,7 +587,7 @@ namespace BrynzaAPI
             c.EmitDelegate(HandlePickupStuff);
         }
 
-        private void GenericCharacterMain_PerformInputs(On.EntityStates.GenericCharacterMain.orig_PerformInputs orig, GenericCharacterMain self)
+        private static void GenericCharacterMain_PerformInputs(On.EntityStates.GenericCharacterMain.orig_PerformInputs orig, GenericCharacterMain self)
         {
             orig(self);
             if (!self.isAuthority || !self.skillLocator || !self.skillLocator.GetSprintSkill()) return;
@@ -576,79 +615,14 @@ namespace BrynzaAPI
 
         private static bool useDynamicStats;
         public static bool useMoveSpeedDynamicStat;
-        private void CharacterBody_RecalculateStats2(On.RoR2.CharacterBody.orig_RecalculateStats orig, CharacterBody self)
+        private static void CharacterBody_RecalculateStats2(On.RoR2.CharacterBody.orig_RecalculateStats orig, CharacterBody self)
         {
             useDynamicStats = false;
             useMoveSpeedDynamicStat = false;
             orig(self);
             useDynamicStats = true;
         }
-
-        internal static Dictionary<string, object> keyValuePairs1 = [];
-        private static void ClassicStageInfo_RebuildCards(On.RoR2.ClassicStageInfo.orig_RebuildCards orig, ClassicStageInfo self, DirectorCardCategorySelection forcedMonsterCategory, DirectorCardCategorySelection forcedInteractableCategory)
-        {
-            try
-            {
-                if (self && self.monsterDccsPool && !self.monsterDccsPool.GetAppliedChanges())
-                {
-                    foreach (DccsPool.Category category in self.monsterDccsPool.poolCategories)
-                    {
-                        foreach (DccsPool.PoolEntry poolEntry in category.alwaysIncluded)
-                        {
-                            HandlePoolEntry(poolEntry);
-                        }
-                        foreach (DccsPool.PoolEntry poolEntry in category.includedIfConditionsMet)
-                        {
-                            HandlePoolEntry(poolEntry);
-                        }
-                        foreach (DccsPool.PoolEntry poolEntry in category.includedIfNoConditionsMet)
-                        {
-                            HandlePoolEntry(poolEntry);
-                        }
-                    }
-                    self.monsterDccsPool.SetAppliedChanges(true);
-                }
-            }
-            catch (Exception e)
-            {
-                Log.LogError("Go tell Brynzananas in #tech-support that his smartass auto director card generator broke");
-                Log.LogError(e);
-            }
-            orig(self, forcedMonsterCategory, forcedInteractableCategory);
-        }
-        private static void HandlePoolEntry(DccsPool.PoolEntry poolEntry)
-        {
-            DirectorCardCategorySelection directorCardCategorySelection = poolEntry.dccs;
-            if (!directorCardCategorySelection) return;
-            for (int i = 0; i < directorCardCategorySelection.categories.Length; i++)
-            {
-                ref DirectorCardCategorySelection.Category category = ref directorCardCategorySelection.categories[i];
-                ref DirectorCard[] directorCards = ref category.cards;
-                if (directorCards == null || directorCards.Length == 0) continue;
-                foreach (DirectorCard directorCard in directorCards)
-                {
-                    SpawnCard spawnCard = directorCard.spawnCard;
-                    if (!spawnCard && directorCard.spawnCardReference != null)
-                    {
-                        spawnCard = directorCard.spawnCardReference.Asset ? directorCard.spawnCardReference.Asset as SpawnCard : directorCard.spawnCardReference.LoadAssetAsync<SpawnCard>().WaitForCompletion();
-                    }
-                    if (!spawnCard || !spawnCard.prefab) continue;
-                    CharacterSpawnCard characterSpawnCard = spawnCard as CharacterSpawnCard;
-                    if (!characterSpawnCard) continue;
-                    if (keyValuePairs1.TryGetValue(spawnCard.prefab.name, out object spawnCard1))
-                    {
-                        CharacterSpawnCardMirror characterSpawnCardMirror = spawnCard1 as CharacterSpawnCardMirror;
-                        if (!characterSpawnCardMirror) continue;
-                        DirectorCard directorCard1 = characterSpawnCardMirror.GetDirectorCard(directorCard);
-                        directorCard1.spawnCard = characterSpawnCardMirror.GetSpawnCard(characterSpawnCard);
-                        int length = category.cards.Length;
-                        Array.Resize(ref category.cards, length + 1);
-                        category.cards[length] = directorCard1;
-                    }
-                }
-            }
-        }
-        private void CharacterMotor_FixedUpdate1(ILContext il)
+        private static void CharacterMotor_FixedUpdate1(ILContext il)
         {
             ILCursor c = new ILCursor(il);
             if (
@@ -677,7 +651,7 @@ namespace BrynzaAPI
             action(inventory);
             inventory.SetCharacterMaster(inventory.GetComponent<CharacterMaster>());
         }
-        private void CharacterMotor_FixedUpdate(On.RoR2.CharacterMotor.orig_FixedUpdate orig, CharacterMotor self)
+        private static void CharacterMotor_FixedUpdate(On.RoR2.CharacterMotor.orig_FixedUpdate orig, CharacterMotor self)
         {
             orig(self);
             if (self.isGrounded)
@@ -693,7 +667,7 @@ namespace BrynzaAPI
             }
         }
 
-        private void EffectManager_SpawnEffect_EffectIndex_EffectData_bool(ILContext il)
+        private static void EffectManager_SpawnEffect_EffectIndex_EffectData_bool(ILContext il)
         {
             ILCursor c = new ILCursor(il);
             ilhook(1, 6);
@@ -739,7 +713,7 @@ namespace BrynzaAPI
             if (self.targetBody && self.targetBody.HasModdedBodyFlag(Assets.FirstPerson)) return true;
             return orig(self);
         }
-        private void EffectComponent_Reset(ILContext il)
+        private static void EffectComponent_Reset(ILContext il)
         {
             ILCursor c = new ILCursor(il);
             ilhook(1);
@@ -773,7 +747,7 @@ namespace BrynzaAPI
             }
         }
 
-        private void EffectData_Deserialize(On.RoR2.EffectData.orig_Deserialize orig, EffectData self, NetworkReader reader)
+        private static void EffectData_Deserialize(On.RoR2.EffectData.orig_Deserialize orig, EffectData self, NetworkReader reader)
         {
             orig(self, reader);
             bool flag = reader.ReadBoolean();
@@ -787,7 +761,7 @@ namespace BrynzaAPI
             }
         }
 
-        private void EffectData_Serialize(On.RoR2.EffectData.orig_Serialize orig, EffectData self, NetworkWriter writer)
+        private static void EffectData_Serialize(On.RoR2.EffectData.orig_Serialize orig, EffectData self, NetworkWriter writer)
         {
             orig(self, writer);
             bool flag = self.GetScale().HasValue;
@@ -795,25 +769,27 @@ namespace BrynzaAPI
             if (flag) writer.Write(self.GetScale().Value);
         }
 
-        private void EffectData_Reset(On.RoR2.EffectData.orig_Reset orig, EffectData self)
+        private static void EffectData_Reset(On.RoR2.EffectData.orig_Reset orig, EffectData self)
         {
             orig(self);
             self.SetScale(null);
         }
 
-        private void EffectData_Copy(On.RoR2.EffectData.orig_Copy orig, EffectData src, EffectData dest)
+        private static void EffectData_Copy(On.RoR2.EffectData.orig_Copy orig, EffectData src, EffectData dest)
         {
             orig(src, dest);
             dest.SetScale(src.GetScale());
         }
 
-        private void CharacterBody_Awake(On.RoR2.CharacterBody.orig_Awake orig, CharacterBody self)
+        private static void CharacterBody_Awake(On.RoR2.CharacterBody.orig_Awake orig, CharacterBody self)
         {
             orig(self);
             self.SetClientBuffs(BuffCatalog.GetPerBuffBuffer<int>());
+            self.SetPreviousPosition(self.transform.position);
+            self.SetPositionDelta(Vector3.zero);
         }
 
-        private void UnsetHooks()
+        private static void UnsetHooks()
         {
             if (!hooksEnabled) return;
             hooksEnabled = false;
@@ -857,29 +833,15 @@ namespace BrynzaAPI
             On.RoR2.EffectData.Deserialize -= EffectData_Deserialize;
             IL.RoR2.EffectComponent.Reset -= EffectComponent_Reset;
             IL.RoR2.EffectManager.SpawnEffect_EffectIndex_EffectData_bool -= EffectManager_SpawnEffect_EffectIndex_EffectData_bool;
-            RoR2Application.onLoadFinished -= OnRoR2Loaded;
         }
-        private bool hooksEnabled = false;
-        private void OnRoR2Loaded()
-        {
-            StartCoroutine(AddLanguageTokens());
-        }
-        private IEnumerator AddLanguageTokens()
-        {
-            while (LanguageTokensToAddOnLoad.languageTokensToAddOnLoad.Count > 0)
-            {
-                LanguageTokensToAddOnLoad.languageTokensToAddOnLoad[0].Dispose();
-                yield return null;
-            }
-            yield break;
-        }
+        private static bool hooksEnabled = false;
 
-        private void CharacterBody_TriggerJumpEventGlobally(On.RoR2.CharacterBody.orig_TriggerJumpEventGlobally orig, CharacterBody self)
+        private static void CharacterBody_TriggerJumpEventGlobally(On.RoR2.CharacterBody.orig_TriggerJumpEventGlobally orig, CharacterBody self)
         {
             orig(self);
             self.SetLastJumpTime(Run.FixedTimeStamp.now);
         }
-        private void AimAnimator_UpdateAnimatorParameters(ILContext il)
+        private static void AimAnimator_UpdateAnimatorParameters(ILContext il)
         {
             ILCursor c = new ILCursor(il);
             if (
@@ -990,24 +952,45 @@ namespace BrynzaAPI
         {
             ILCursor c = new ILCursor(il);
             ILLabel iLLabel = null;
+            int locId1 = 9;
+            int locId2 = 11;
             if (
-                c.TryGotoNext(MoveType.After,
-                    x => x.MatchLdfld<BulletAttack>(nameof(BulletAttack.weapon)),
-                    x => x.MatchCall<UnityEngine.Object>("op_Implicit"),
-                    x => x.MatchBrtrue(out iLLabel)
+                !c.TryGotoNext(MoveType.After,
+                    x => x.MatchCall<Quaternion>(nameof(Quaternion.Euler)),
+                    x => x.MatchLdloc(out locId1)
                 ))
             {
-                c.Emit(OpCodes.Ldarg_0);
-                c.EmitDelegate(GetNoWeaponIfOwner);
-                bool GetNoWeaponIfOwner(BulletAttack bulletAttack) => bulletAttack.GetNoWeaponIfOwner();
-                c.Emit(OpCodes.Brtrue_S, iLLabel);
-            }
-            else
-            {
                 Log.LogError(il.Method.Name + " IL Hook 1 failed!");
+                return;
             }
+            if (
+                !c.TryGotoNext(MoveType.After,
+                    x => x.MatchNewobj<Ray>()
+                ))
+            {
+                Log.LogError(il.Method.Name + " IL Hook 2 failed!");
+                return;
+            }
+            c.Emit(OpCodes.Ldarg_0);
+            c.Emit(OpCodes.Ldloc, locId1);
+            c.EmitDelegate(HandleBulletPatternDef); // I should replace original spread calculation but I am laaazyyy, atleast I didn't use locs with set values
         }
-
+        private static Ray HandleBulletPatternDef(Ray ray, BulletAttack bulletAttack, float spread)
+        {
+            BulletPatternDef bulletPatternDef = bulletAttack.GetBulletPatternDef();
+            if (!bulletPatternDef) return ray;
+            CharacterBody characterBody = bulletAttack.owner ? bulletAttack .owner.GetComponent<CharacterBody>() : null;
+            if (!characterBody) return ray;
+            int currentBulletCount = characterBody.GetBulletCount();
+            Vector2 vector2 = bulletPatternDef.GetSpreadOffset(currentBulletCount);
+            characterBody.SetBulletCount(currentBulletCount + 1);
+            characterBody.SetBulletCountResetTimer(characterBody.GetBulletCountGraceDuration());
+            Vector3 vector11 = Vector3.Cross(Vector3.up, bulletAttack.aimVector);
+            Vector3 vector12 = Vector3.Cross(bulletAttack.aimVector, vector11);
+            Vector3 vector3 = Quaternion.AngleAxis(vector2.x * (spread / 2f), vector12) * Quaternion.AngleAxis(vector2.y * (spread / 2f), vector11) * bulletAttack.aimVector;
+            ray.direction = vector3;
+            return ray;
+        }
         private static string pendingDefaultValue;
         [HarmonyPatch]
         class Patches
@@ -1019,11 +1002,11 @@ namespace BrynzaAPI
                 ILCursor c = new ILCursor(il);
                 if (
                     c.TryGotoNext(MoveType.Before,
-                        x => x.MatchLdloc(4),
+                        x => x.MatchLdloc(5),
                         x => x.MatchLdstr("#")
                     ))
                 {
-                    c.Emit(OpCodes.Ldloc, 4);
+                    c.Emit(OpCodes.Ldloc, 5);
                     c.EmitDelegate(GetDefaultValue);
                     void GetDefaultValue(string line)
                     {
@@ -1032,12 +1015,12 @@ namespace BrynzaAPI
                     }
                     if (
                         c.TryGotoNext(MoveType.After,
-                            x => x.MatchLdloc(8),
-                            x => x.MatchLdloc(7)
+                            x => x.MatchLdloc(9),
+                            x => x.MatchLdloca(10)
                         ))
                     {
                         c.Emit(OpCodes.Ldarg_0);
-                        c.Emit(OpCodes.Ldloc, 8);
+                        c.Emit(OpCodes.Ldloc, 9);
                         c.EmitDelegate(SetDefaultValue);
                         void SetDefaultValue(ConfigFile configFile, ConfigDefinition configDefinition)
                         {
@@ -1109,7 +1092,7 @@ namespace BrynzaAPI
             }
         }
 
-        private DamageInfo NetworkExtensions_ReadDamageInfo(On.RoR2.NetworkExtensions.orig_ReadDamageInfo orig, NetworkReader reader)
+        private static DamageInfo NetworkExtensions_ReadDamageInfo(On.RoR2.NetworkExtensions.orig_ReadDamageInfo orig, NetworkReader reader)
         {
             DamageInfo damageInfo = orig(reader);
             damageInfo.SetForceMassIsOne(reader.ReadBoolean());
@@ -1118,7 +1101,7 @@ namespace BrynzaAPI
             return damageInfo;
         }
 
-        private void NetworkExtensions_Write_NetworkWriter_DamageInfo(On.RoR2.NetworkExtensions.orig_Write_NetworkWriter_DamageInfo orig, NetworkWriter writer, DamageInfo damageInfo)
+        private static void NetworkExtensions_Write_NetworkWriter_DamageInfo(On.RoR2.NetworkExtensions.orig_Write_NetworkWriter_DamageInfo orig, NetworkWriter writer, DamageInfo damageInfo)
         {
             orig(writer, damageInfo);
             writer.Write(damageInfo.GetForceMassIsOne());
@@ -1126,7 +1109,7 @@ namespace BrynzaAPI
             writer.Write(damageInfo.GetForceDisableAirControlUntilCollision());
         }
 
-        private void BulletAttack_DefaultHitCallbackImplementation(ILContext il)
+        private static void BulletAttack_DefaultHitCallbackImplementation(ILContext il)
         {
             ILCursor c = new ILCursor(il);
             int locId = 3;
@@ -2211,7 +2194,7 @@ private void GenericSkill_SetBonusStockFromBody(ILContext il)
             }
         }
 
-        private void ContentManager_collectContentPackProviders(ContentManager.AddContentPackProviderDelegate addContentPackProvider)
+        private static void ContentManager_collectContentPackProviders(ContentManager.AddContentPackProviderDelegate addContentPackProvider)
         {
             addContentPackProvider.Invoke(new ContentPacks());
         }
@@ -2681,7 +2664,7 @@ private void BulletAttack_Fire(ILContext il)
             public string Name;
         }
         public delegate void OnConfigApplied(int configId, INetworkConfig networkConfig);
-        private System.Collections.IEnumerator RoR2Application_OnLoad(On.RoR2.RoR2Application.orig_OnLoad orig, RoR2Application self)
+        private static System.Collections.IEnumerator RoR2Application_OnLoad(On.RoR2.RoR2Application.orig_OnLoad orig, RoR2Application self)
         {
             SetConfigValues();
             return orig(self);
@@ -2771,7 +2754,7 @@ private void BulletAttack_Fire(ILContext il)
             SetConfigValues();
         }
 
-        private void Run_Start(On.RoR2.Run.orig_Start orig, Run self)
+        private static void Run_Start(On.RoR2.Run.orig_Start orig, Run self)
         {
             orig(self);
             if (NetworkServer.active)
@@ -3593,174 +3576,6 @@ private void BulletAttack_Fire(ILContext il)
                 if (!item.itemDef || item.itemDef.Asset) continue;
                 inventory.GiveItemPermanent(item.itemDef.Asset, item.amount);
             }
-        }
-    }
-    public abstract class BaseSpawnCardMirror<T> : ScriptableObject where T : SpawnCard
-    {
-        public string targetPrefabName;
-        public GameObject prefab;
-        public float costMultiplier;
-        public bool overrideHullSize;
-        public HullClassification hullSize;
-        public bool overrideNodeGraphType;
-        public MapNodeGroup.GraphType nodeGrapthType;
-        public bool overrideRequiredFlags;
-        public NodeFlags requiredFlags;
-        public bool overrideForbiddenFlags;
-        public NodeFlags forbiddenFlags;
-        public bool overrideEliteRules;
-        public SpawnCard.EliteRules eliteRules;
-        public Dictionary<T, T> spawnCardOriginalToMirrored = [];
-        public Dictionary<DirectorCard, DirectorCard> directorCardOriginalToMirrored = [];
-        public virtual DirectorCard GetDirectorCard(DirectorCard originalDirectorCard)
-        {
-            DirectorCard mirroredDirectorCard;
-            if (directorCardOriginalToMirrored.TryGetValue(originalDirectorCard, out mirroredDirectorCard))
-            {
-
-            }
-            else
-            {
-                mirroredDirectorCard = new DirectorCard
-                {
-                    selectionWeight = originalDirectorCard.selectionWeight,
-                    spawnDistance = originalDirectorCard.spawnDistance,
-                    preventOverhead = originalDirectorCard.preventOverhead,
-                    minimumStageCompletions = originalDirectorCard.minimumStageCompletions,
-                    requiredUnlockableDef = originalDirectorCard.requiredUnlockableDef,
-                    forbiddenUnlockableDef = originalDirectorCard.forbiddenUnlockableDef,
-                };
-                directorCardOriginalToMirrored.Add(originalDirectorCard, mirroredDirectorCard);
-            }
-            return mirroredDirectorCard;
-        }
-        public virtual T GetSpawnCard(T originalSpawnCard)
-        {
-            T mirroredCharacterSpawnCard;
-            if (spawnCardOriginalToMirrored.TryGetValue(originalSpawnCard, out mirroredCharacterSpawnCard))
-            {
-                return mirroredCharacterSpawnCard;
-            }
-            mirroredCharacterSpawnCard = ScriptableObject.CreateInstance<T>();
-            mirroredCharacterSpawnCard.prefab = prefab;
-            (mirroredCharacterSpawnCard as ScriptableObject).name = name;
-            mirroredCharacterSpawnCard.directorCreditCost = (int)((float)originalSpawnCard.directorCreditCost * costMultiplier);
-            if (overrideEliteRules)
-            {
-                mirroredCharacterSpawnCard.eliteRules = eliteRules;
-            }
-            else
-            {
-                mirroredCharacterSpawnCard.eliteRules = originalSpawnCard.eliteRules;
-            }
-            if (overrideRequiredFlags)
-            {
-                mirroredCharacterSpawnCard.requiredFlags = requiredFlags;
-            }
-            else
-            {
-                mirroredCharacterSpawnCard.requiredFlags = originalSpawnCard.requiredFlags;
-            }
-            if (overrideHullSize)
-            {
-                mirroredCharacterSpawnCard.hullSize = hullSize;
-            }
-            else
-            {
-                mirroredCharacterSpawnCard.hullSize = originalSpawnCard.hullSize;
-            }
-            if (overrideNodeGraphType)
-            {
-                mirroredCharacterSpawnCard.nodeGraphType = nodeGrapthType;
-            }
-            else
-            {
-                mirroredCharacterSpawnCard.nodeGraphType = originalSpawnCard.nodeGraphType;
-            }
-            if (overrideForbiddenFlags)
-            {
-                mirroredCharacterSpawnCard.forbiddenFlags = forbiddenFlags;
-            }
-            else
-            {
-                mirroredCharacterSpawnCard.forbiddenFlags = originalSpawnCard.forbiddenFlags;
-            }
-            return mirroredCharacterSpawnCard;
-        }
-        public void Init()
-        {
-            keyValuePairs1.Add(targetPrefabName, this);
-        }
-        public void UpdateDirectorCreditCostForMirroredSpawnCards(float newCostMultiplier)
-        {
-            costMultiplier = newCostMultiplier;
-            foreach (var pair in spawnCardOriginalToMirrored)
-            {
-                T originalSpawnCard = pair.Key;
-                if (!originalSpawnCard) continue;
-                T mirroredSpawnCard = pair.Value;
-                if (!mirroredSpawnCard) continue;
-                mirroredSpawnCard.directorCreditCost = (int)((float)originalSpawnCard.directorCreditCost * costMultiplier);
-            }
-        }
-    }
-    [CreateAssetMenu(menuName = "BrynzaAPI/SpawnCardMirror")]
-    public class SpawnCardMirror : BaseSpawnCardMirror<SpawnCard>
-    {
-        
-    }
-    [CreateAssetMenu(menuName = "BrynzaAPI/CharacterSpawnCardMirror")]
-    public class CharacterSpawnCardMirror : BaseSpawnCardMirror<CharacterSpawnCard>
-    {
-        public bool overrideNoElites;
-        public bool noElites;
-        public bool overrideForbiddenAsBoss;
-        public bool forbiddenAsBoss;
-        public SerializableLoadout loadout;
-        public bool overrideEquipmentToGrant;
-        public EquipmentDef[] equipmentToGrant = [];
-        public bool overrideItemsToGrant;
-        public ItemCountPair[] itemsToGrant = [];
-        public override CharacterSpawnCard GetSpawnCard(CharacterSpawnCard originalSpawnCard)
-        {
-            if (spawnCardOriginalToMirrored.ContainsKey(originalSpawnCard))
-            {
-                return base.GetSpawnCard(originalSpawnCard);
-            }
-            CharacterSpawnCard mirroredCharacterSpawnCard = base.GetSpawnCard(originalSpawnCard);
-            if (overrideForbiddenAsBoss)
-            {
-                mirroredCharacterSpawnCard.forbiddenAsBoss = forbiddenAsBoss;
-            }
-            else
-            {
-                mirroredCharacterSpawnCard.forbiddenAsBoss = originalSpawnCard.forbiddenAsBoss;
-            }
-            if (overrideNoElites)
-            {
-                mirroredCharacterSpawnCard.noElites = noElites;
-            }
-            else
-            {
-                mirroredCharacterSpawnCard.noElites = originalSpawnCard.noElites;
-            }
-            if (overrideEquipmentToGrant)
-            {
-                mirroredCharacterSpawnCard.equipmentToGrant = equipmentToGrant;
-            }
-            else
-            {
-                mirroredCharacterSpawnCard.equipmentToGrant = originalSpawnCard.equipmentToGrant;
-            }
-            if (overrideItemsToGrant)
-            {
-                mirroredCharacterSpawnCard.itemsToGrant = itemsToGrant;
-            }
-            else
-            {
-                mirroredCharacterSpawnCard.itemsToGrant = originalSpawnCard.itemsToGrant;
-            }
-            return mirroredCharacterSpawnCard;
         }
     }
     public class ProjectileImpactCapsuleExplosion : ProjectileImpactExplosion
@@ -4649,6 +4464,18 @@ private void BulletAttack_Fire(ILContext il)
         public static Vector3? GetEndPosition(this BlastAttack blastAttack) => BrynzaInterop.GetEndPosition(blastAttack);
         public static void SetNearestPositionOnLineFromHitPosition(this ref BlastAttack.HitPoint hitPoint, Vector3? vector3) => BrynzaInterop.SetNearestPositionOnLineFromHitPosition(ref hitPoint, vector3);
         public static Vector3? GetNearestPositionOnLineFromHitPosition(this BlastAttack.HitPoint hitPoint) => BrynzaInterop.GetNearestPositionOnLineFromHitPosition(hitPoint);
+        public static void SetPreviousPosition(this CharacterBody characterBody, Vector3 vector3) => BrynzaInterop.SetPreviousPosition(characterBody, vector3); // 4 thousand lines of bullshit bro when you will create new cs files
+        public static Vector3 GetPreviousPosition(this CharacterBody characterBody) => BrynzaInterop.GetPreviousPosition(characterBody);
+        public static void SetPositionDelta(this CharacterBody characterBody, Vector3 vector3) => BrynzaInterop.SetPositionDelta(characterBody, vector3);
+        public static Vector3 GetPositionDelta(this CharacterBody characterBody) => BrynzaInterop.GetPositionDelta(characterBody);
+        public static void SetBulletCount(this CharacterBody characterBody, int bulletCount) => BrynzaInterop.SetBulletCount(characterBody, bulletCount);
+        public static int GetBulletCount(this CharacterBody characterBody) => BrynzaInterop.GetBulletCount(characterBody);
+        public static void SetBulletCountGraceDuration(this CharacterBody characterBody, float bulletCountGraceDuration) => BrynzaInterop.SetBulletCountGraceDuration(characterBody, bulletCountGraceDuration);
+        public static float GetBulletCountGraceDuration(this CharacterBody characterBody) => BrynzaInterop.GetBulletCountGraceDuration(characterBody);
+        public static void SetBulletCountResetTimer(this CharacterBody characterBody, float bulletCountResetTimer) => BrynzaInterop.SetBulletCountResetTimer(characterBody, bulletCountResetTimer);
+        public static float GetBulletCountResetTimer(this CharacterBody characterBody) => BrynzaInterop.GetBulletCountResetTimer(characterBody);
+        public static void SetBulletPatternDef(this BulletAttack bulletAttack, BulletPatternDef bulletPatternDef) => BrynzaInterop.SetBulletPatternDef(bulletAttack, bulletPatternDef);
+        public static BulletPatternDef GetBulletPatternDef(this BulletAttack bulletAttack) => BrynzaInterop.GetBulletPatternDef(bulletAttack) != null && BrynzaInterop.GetBulletPatternDef(bulletAttack) is BulletPatternDef bulletPatternDef ? bulletPatternDef : null;
         public static void ResetIgnoredHealthComponents(this BulletAttack bulletAttack)
         {
             if (bulletAttack.GetIgnoredHealthComponents() != null) bulletAttack.GetIgnoredHealthComponents().Clear();

@@ -17,5 +17,6 @@ namespace RoR2
         public bool bapi_forceDisableAirControlUntilCollision;
         public Vector3 bapi_bonusForce;
         public bool bapi_noWeaponIfOwner;
+        public object bapi_bulletPatternDef;
     }
 }
