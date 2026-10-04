@@ -331,7 +331,7 @@ namespace BrynzaAPI
             //IL.Unity.GeneratedNetworkCode._ReadPhysForceInfo_None += GeneratedNetworkCode__ReadPhysForceInfo_None;
             //IL.RoR2.BodyCatalog.SetBodyPrefabs += BodyCatalog_SetBodyPrefabs;
             On.RoR2.CharacterModel.UpdateRendererMaterials += CharacterModel_UpdateRendererMaterials;
-            IL.RoR2.CharacterModel.UpdateMaterials += CharacterModel_UpdateMaterials;
+            //IL.RoR2.CharacterModel.UpdateMaterials += CharacterModel_UpdateMaterials;
             IL.RoR2.BulletAttack.DefaultHitCallbackImplementation += BulletAttack_DefaultHitCallbackImplementation;
             //On.RoR2.NetworkExtensions.Write_NetworkWriter_DamageInfo += NetworkExtensions_Write_NetworkWriter_DamageInfo;
             //On.RoR2.NetworkExtensions.ReadDamageInfo += NetworkExtensions_ReadDamageInfo;
@@ -816,7 +816,7 @@ namespace BrynzaAPI
             IL.RoR2.UI.LoadoutPanelController.Row.FromSkin -= Row_FromSkin;
             //On.RoR2.UI.LoadoutPanelController.Rebuild -= LoadoutPanelController_Rebuild;
             On.RoR2.CharacterModel.UpdateRendererMaterials -= CharacterModel_UpdateRendererMaterials;
-            IL.RoR2.CharacterModel.UpdateMaterials -= CharacterModel_UpdateMaterials;
+            //IL.RoR2.CharacterModel.UpdateMaterials -= CharacterModel_UpdateMaterials;
             IL.RoR2.BulletAttack.DefaultHitCallbackImplementation -= BulletAttack_DefaultHitCallbackImplementation;
             //On.RoR2.NetworkExtensions.Write_NetworkWriter_DamageInfo -= NetworkExtensions_Write_NetworkWriter_DamageInfo;
             //On.RoR2.NetworkExtensions.ReadDamageInfo -= NetworkExtensions_ReadDamageInfo;
@@ -981,14 +981,7 @@ namespace BrynzaAPI
             if (!bulletPatternDef) return ray;
             CharacterBody characterBody = bulletAttack.owner ? bulletAttack .owner.GetComponent<CharacterBody>() : null;
             if (!characterBody) return ray;
-            int currentBulletCount = characterBody.GetBulletCount();
-            Vector2 vector2 = bulletPatternDef.GetSpreadOffset(currentBulletCount);
-            characterBody.SetBulletCount(currentBulletCount + 1);
-            characterBody.SetBulletCountResetTimer(characterBody.GetBulletCountGraceDuration());
-            Vector3 vector11 = Vector3.Cross(Vector3.up, bulletAttack.aimVector);
-            Vector3 vector12 = Vector3.Cross(bulletAttack.aimVector, vector11);
-            Vector3 vector3 = Quaternion.AngleAxis(vector2.x * (spread / 2f), vector12) * Quaternion.AngleAxis(vector2.y * (spread / 2f), vector11) * bulletAttack.aimVector;
-            ray.direction = vector3;
+            ray.direction = bulletPatternDef.GetAimRay(characterBody, ray.direction, spread);
             return ray;
         }
         private static string pendingDefaultValue;
