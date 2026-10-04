@@ -981,7 +981,7 @@ namespace BrynzaAPI
             if (!bulletPatternDef) return ray;
             CharacterBody characterBody = bulletAttack.owner ? bulletAttack .owner.GetComponent<CharacterBody>() : null;
             if (!characterBody) return ray;
-            ray.direction = bulletPatternDef.GetAimRay(characterBody, ray.direction, spread);
+            ray.direction = bulletPatternDef.GetAimRay(characterBody, bulletAttack.aimVector, spread);
             return ray;
         }
         private static string pendingDefaultValue;
