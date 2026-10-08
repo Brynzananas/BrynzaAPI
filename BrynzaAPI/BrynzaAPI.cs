@@ -87,7 +87,7 @@ namespace BrynzaAPI
     {
         public const string ModGuid = "com.brynzananas.brynzaapi";
         public const string ModName = "Brynza API";
-        public const string ModVer = "1.13.0";
+        public const string ModVer = "1.13.1";
         public static FixedConditionalWeakTable<CharacterMotor, List<OnHitGroundServerDelegate>> onHitGroundServerDictionary = new FixedConditionalWeakTable<CharacterMotor, List<OnHitGroundServerDelegate>>();
         public delegate void OnHitGroundServerDelegate(CharacterMotor characterMotor, ref CharacterMotor.HitGroundInfo hitGroundInfo);
         public static bool proejctilesConfiguratorEnabled { get; private set; }
@@ -657,7 +657,7 @@ namespace BrynzaAPI
         {
             orig(self);
             if (!self.isAuthority || !self.skillLocator || !self.skillLocator.GetSprintSkill()) return;
-            self.HandleSkill(self.skillLocator.GetSprintSkill(), ref self.inputBank.sprint);
+            self.HandleSkill(self.skillLocator.GetSprintSkill(), ref self.inputBank.rawSprintInput);
         }
         private void PickupDropletController_CreatePickupDroplet_CreatePickupInfo_Vector3_Vector3(ILContext il)
         {
