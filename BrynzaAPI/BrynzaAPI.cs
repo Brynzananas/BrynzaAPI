@@ -87,7 +87,7 @@ namespace BrynzaAPI
     {
         public const string ModGuid = "com.brynzananas.brynzaapi";
         public const string ModName = "Brynza API";
-        public const string ModVer = "1.12.0";
+        public const string ModVer = "1.13.0";
         public static FixedConditionalWeakTable<CharacterMotor, List<OnHitGroundServerDelegate>> onHitGroundServerDictionary = new FixedConditionalWeakTable<CharacterMotor, List<OnHitGroundServerDelegate>>();
         public delegate void OnHitGroundServerDelegate(CharacterMotor characterMotor, ref CharacterMotor.HitGroundInfo hitGroundInfo);
         public static bool proejctilesConfiguratorEnabled { get; private set; }
@@ -308,7 +308,7 @@ namespace BrynzaAPI
             //On.RoR2.HurtBox.OnEnable += HurtBox_OnEnable;
             //On.RoR2.HurtBox.OnDisable += HurtBox_OnDisable;
             //IL.RoR2.HealthComponent.TakeDamageProcess += HealthComponent_TakeDamageProcess;
-            IL.EntityStates.GenericCharacterMain.ProcessJump_bool += GenericCharacterMain_ProcessJump_bool;
+            //IL.EntityStates.GenericCharacterMain.ProcessJump_bool += GenericCharacterMain_ProcessJump_bool;
             IL.RoR2.CharacterMotor.OnLanded += CharacterMotor_OnLanded;
             IL.RoR2.CharacterBody.RecalculateStats += CharacterBody_RecalculateStats;
             //IL.RoR2.GenericSkill.SetBonusStockFromBody += GenericSkill_SetBonusStockFromBody;
@@ -369,11 +369,78 @@ namespace BrynzaAPI
             On.RoR2.CharacterBody.FixedUpdate += CharacterBody_FixedUpdate;
             On.RoR2.CharacterBody.ctor += CharacterBody_ctor;
             IL.RoR2.BulletAttack.Fire_FireArgs += BulletAttack_Fire;
+            IL.RoR2.EntityStateMachine.SetState += EntityStateMachine_SetState;
+            IL.RoR2.Projectile.ProjectileExplosion.PerformDamage += ProjectileExplosion_PerformDamage;
             CharacterBodyAPI.AddAlwaysSprintCondition(AlwaysSprint);
             harmonyPatcher = new Harmony(ModGuid);
             harmonyPatcher.CreateClassProcessor(typeof(Patches)).Patch();
         }
 
+        private static void ProjectileExplosion_PerformDamage(ILContext il)
+        {
+            ILCursor c = new ILCursor(il);
+            if (
+                c.TryGotoNext(MoveType.Before,
+                    x => x.MatchCallOrCallvirt<BlastAttack>(nameof(BlastAttack.Fire))
+                ))
+            {
+                c.Emit(OpCodes.Dup);
+                c.Emit(OpCodes.Ldarg_0);
+                c.EmitDelegate(HandleProjectileExplosion_DetonateServer);
+            }
+            else
+            {
+                Log.LogError(il.Method.Name + " IL Hook 1 failed!");
+            }
+            c = new ILCursor(il);
+            int locId1 = 1;
+            int locId2 = 2;
+            if (c.TryGotoNext(
+                MoveType.After,
+                    x => x.MatchLdloc(out locId1),
+                    x => x.MatchLdloc(out locId2),
+                    x => x.MatchCallvirt<ProjectileExplosion>(nameof(ProjectileExplosion.OnBlastAttackResult))
+                ))
+            {
+                c.Emit(OpCodes.Ldarg_0);
+                c.Emit(OpCodes.Ldloc, locId1);
+                c.Emit(OpCodes.Ldloc, locId2);
+                c.EmitDelegate<Action<ProjectileExplosion, BlastAttack, BlastAttack.Result>>((pe, ba, bar) =>
+                {
+                    IOnProjectileExplosionDetonate[] onProjectileExplosionDetonateInterfaces = pe.GetComponents<IOnProjectileExplosionDetonate>();
+                    foreach (IOnProjectileExplosionDetonate onProjectileExplosionDetonate in onProjectileExplosionDetonateInterfaces)
+                    {
+                        onProjectileExplosionDetonate.OnProjectileExplosionDetonate(ba, bar);
+                    }
+                });
+            }
+            else
+            {
+                Log.LogError(il.Method.Name + " IL Hook 2 failed!");
+            }
+        }
+
+        private static void EntityStateMachine_SetState(ILContext il)
+        {
+            ILCursor c = new ILCursor(il);
+            if (
+                !c.TryGotoNext(MoveType.After,
+                    x => x.MatchCallvirt<EntityState>(nameof(EntityState.ModifyNextState))
+                ))
+            {
+                Log.LogError(il.Method.Name + " IL Hook 1 failed!");
+                return;
+            }
+            c.Emit(OpCodes.Ldarg_0);
+            c.Emit(OpCodes.Ldarga, 1);
+            c.EmitDelegate(HandleModifyNextRefState);
+        }
+        private static void HandleModifyNextRefState(EntityStateMachine entityStateMachine, ref EntityState entityState)
+        {
+            if (entityStateMachine.state is not IModifyNextRefState modifyNextRefState) return;
+            modifyNextRefState.ModifyNextRefState(ref entityState);
+            entityState.outer = entityStateMachine;
+        }
         private static void CharacterBody_ctor(On.RoR2.CharacterBody.orig_ctor orig, CharacterBody self)
         {
             orig(self);
@@ -575,14 +642,13 @@ namespace BrynzaAPI
             int index = 0;
             if (
                 !c.TryGotoNext(MoveType.Before,
-                    x => x.MatchLdloc(out index),
                     x => x.MatchCall<NetworkServer>(nameof(NetworkServer.Spawn))
                 ))
             {
                 Log.LogError(il.Method.Name + " IL Hook 1 failed!");
                 return;
             }
-            c.Emit(OpCodes.Ldloc, index);
+            c.Emit(OpCodes.Dup);
             c.Emit(OpCodes.Ldarg_0);
             c.EmitDelegate(HandlePickupStuff);
         }
@@ -805,7 +871,7 @@ namespace BrynzaAPI
             On.RoR2.UI.CharacterSelectController.OnEnable -= CharacterSelectController_OnEnable;
             IL.RoR2.FogDamageController.MyFixedUpdate -= FogDamageController_MyFixedUpdate;
             //IL.RoR2.HealthComponent.TakeDamageProcess -= HealthComponent_TakeDamageProcess;
-            IL.EntityStates.GenericCharacterMain.ProcessJump_bool -= GenericCharacterMain_ProcessJump_bool;
+            //IL.EntityStates.GenericCharacterMain.ProcessJump_bool -= GenericCharacterMain_ProcessJump_bool;
             IL.RoR2.CharacterMotor.OnLanded -= CharacterMotor_OnLanded;
             IL.RoR2.CharacterBody.RecalculateStats -= CharacterBody_RecalculateStats;
             On.RoR2.BulletAttack.ProcessHit -= BulletAttack_ProcessHit;
@@ -1884,7 +1950,9 @@ private void GenericSkill_SetBonusStockFromBody(ILContext il)
                 Log.LogError(il.Method.Name + " IL Hook 2 failed!");
             }
         }
-        private static void GenericCharacterMain_ProcessJump_bool(ILContext il)
+        // TODO: Fix later
+
+        /*private static void GenericCharacterMain_ProcessJump_bool(ILContext il)
         {
             ILCursor c = new ILCursor(il);
             Instruction instruction = null;
@@ -1978,7 +2046,7 @@ private void GenericSkill_SetBonusStockFromBody(ILContext il)
                 Log.LogError(il.Method.Name + " IL Hook 1 failed!");
             }
 
-        }
+        }*/
 
         private static void HealthComponent_TakeDamageProcess(ILContext il)
         {
@@ -2285,43 +2353,6 @@ private void BulletAttack_Fire(ILContext il)
             else
             {
                 Log.LogError(il.Method.Name + " IL Hook 1 failed!");
-            }
-            c = new ILCursor(il);
-            if (
-                c.TryGotoNext(MoveType.Before,
-                    x => x.MatchCallOrCallvirt<BlastAttack>(nameof(BlastAttack.Fire))
-                ))
-            {
-                c.Emit(OpCodes.Dup);
-                c.Emit(OpCodes.Ldarg_0);
-                c.EmitDelegate(HandleProjectileExplosion_DetonateServer);
-            }
-            else
-            {
-                Log.LogError(il.Method.Name + " IL Hook 2 failed!");
-            }
-            c = new ILCursor(il);
-            ILLabel iLLabel = null;
-            if (c.TryGotoNext(
-                    x => x.MatchCallvirt<ProjectileExplosion>(nameof(ProjectileExplosion.OnBlastAttackResult))
-                ))
-            {
-                c.Index += 1;
-                c.Emit(OpCodes.Ldarg_0);
-                c.Emit(OpCodes.Ldloc_1);
-                c.Emit(OpCodes.Ldloc_2);
-                c.EmitDelegate<Action<ProjectileExplosion, BlastAttack, BlastAttack.Result>>((pe, ba, bar) =>
-                {
-                    IOnProjectileExplosionDetonate[] onProjectileExplosionDetonateInterfaces = pe.GetComponents<IOnProjectileExplosionDetonate>();
-                    foreach (IOnProjectileExplosionDetonate onProjectileExplosionDetonate in onProjectileExplosionDetonateInterfaces)
-                    {
-                        onProjectileExplosionDetonate.OnProjectileExplosionDetonate(ba, bar);
-                    }
-                });
-            }
-            else
-            {
-                Log.LogError(il.Method.Name + " IL Hook 3 failed!");
             }
         }
         public static float strafeMultiplier = 15f;
